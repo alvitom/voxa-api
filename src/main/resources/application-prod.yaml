@@ -1,0 +1,14 @@
+spring:
+  datasource:
+    hikari:
+      maximum-pool-size: 20
+      minimum-idle: 10
+
+  application:
+    security:
+      jwt:
+        expiration: 15m
+        refresh-token-expiration: 30d
+
+  jpa:
+    open-in-view: false

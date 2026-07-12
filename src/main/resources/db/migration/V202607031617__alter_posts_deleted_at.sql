@@ -1,0 +1,1 @@
+ALTER TABLE posts MODIFY COLUMN deleted_at TIMESTAMP;

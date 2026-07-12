@@ -1,0 +1,19 @@
+spring:
+  profiles:
+    active:
+      - dev
+
+  datasource:
+    url: ${DB_URL}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+
+  application:
+    security:
+      jwt:
+        secret-key: ${JWT_SECRET}
+
+  flyway:
+    user: ${FLYWAY_USERNAME}
+    password: ${FLYWAY_PASSWORD}
