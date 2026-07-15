@@ -24,7 +24,6 @@ public class UserRepositoryTest {
         User user = User.builder()
                 .email("john@example.com")
                 .password("example")
-                .phoneNumber("081234567890")
                 .build();
 
         // Then
@@ -32,22 +31,20 @@ public class UserRepositoryTest {
     }
 
     @Test
-    void shouldThrowExceptionWhenUsernameAlreadyExists() {
+    void shouldThrowExceptionWhenUsernameOrEmailAlreadyExists() {
         // Given
         User user1 = User.builder()
                 .email("john@example.com")
-                .password("example")
-                .phoneNumber("081234567890")
                 .username("example")
+                .password("password")
                 .build();
         userRepository.saveAndFlush(user1);
 
         // When
         User user2 = User.builder()
                 .email("john@example.com")
-                .password("example")
-                .phoneNumber("081234567890")
                 .username("example")
+                .password("password")
                 .build();
 
         // Then
@@ -59,9 +56,8 @@ public class UserRepositoryTest {
         // Given
         User user = User.builder()
                 .email("john@example.com")
-                .password("example")
-                .phoneNumber("081234567890")
                 .username("example")
+                .password("password")
                 .build();
         userRepository.save(user);
 

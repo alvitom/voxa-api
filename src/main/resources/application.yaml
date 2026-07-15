@@ -13,7 +13,10 @@ spring:
     security:
       jwt:
         secret-key: ${JWT_SECRET}
+    mail:
+      from: ${MAIL_FROM}
+    client-url: ${CLIENT_URL}
 
-  flyway:
-    user: ${FLYWAY_USERNAME}
-    password: ${FLYWAY_PASSWORD}
+  mail:
+    host: ${MAIL_HOST}
+    port: ${MAIL_PORT}

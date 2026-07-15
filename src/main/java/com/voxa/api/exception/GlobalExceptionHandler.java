@@ -2,13 +2,14 @@ package com.voxa.api.exception;
 
 import com.voxa.api.model.response.ErrorResponse;
 import jakarta.servlet.http.HttpServletRequest;
-import org.springframework.http.HttpStatus;
+import jakarta.validation.ConstraintViolationException;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.HttpMediaTypeNotSupportedException;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.server.ResponseStatusException;
@@ -30,6 +31,31 @@ public class GlobalExceptionHandler {
                 .map(fieldError -> new ErrorResponse.FieldError(
                         fieldError.getField(),
                         fieldError.getDefaultMessage()
+                ))
+                .toList();
+
+        ErrorResponse errorResponse = ErrorResponse.builder()
+                .timestamp(Instant.now())
+                .success(false)
+                .message("Validation error")
+                .path(request.getRequestURI())
+                .errors(errors)
+                .build();
+
+        return ResponseEntity.badRequest().body(errorResponse);
+    }
+
+    @ExceptionHandler(
+            value = ConstraintViolationException.class,
+            produces = MediaType.APPLICATION_JSON_VALUE
+    )
+    public ResponseEntity<ErrorResponse> constraintViolationException(HttpServletRequest request,
+                                                                         ConstraintViolationException exception) {
+        List<ErrorResponse.FieldError> errors = exception.getConstraintViolations()
+                .stream()
+                .map(fieldError -> new ErrorResponse.FieldError(
+                        fieldError.getPropertyPath().toString(),
+                        fieldError.getMessage()
                 ))
                 .toList();
 
@@ -98,6 +124,22 @@ public class GlobalExceptionHandler {
     )
     public ResponseEntity<ErrorResponse> httpRequestMethodNotSupportedException(HttpServletRequest request,
                                                                                 HttpRequestMethodNotSupportedException exception) {
+        ErrorResponse errorResponse = ErrorResponse.builder()
+                .timestamp(Instant.now())
+                .success(false)
+                .message(exception.getMessage())
+                .path(request.getRequestURI())
+                .build();
+
+        return ResponseEntity.status(exception.getStatusCode()).body(errorResponse);
+    }
+
+    @ExceptionHandler(
+            value = MissingServletRequestParameterException.class,
+            produces = MediaType.APPLICATION_JSON_VALUE
+    )
+    public ResponseEntity<ErrorResponse> missingServletRequestParameterException(HttpServletRequest request,
+                                                                                 MissingServletRequestParameterException exception) {
         ErrorResponse errorResponse = ErrorResponse.builder()
                 .timestamp(Instant.now())
                 .success(false)

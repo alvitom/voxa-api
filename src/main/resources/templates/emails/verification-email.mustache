@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Verify Account</title>
+</head>
+<body>
+    <h2>Hello {{username}}</h2>
+    <p>
+        Thank you for registering.
+    </p>
+    <p>
+        Please verify your account by clicking the button below.
+    </p>
+    <a href="{{verificationUrl}}"
+       style="
+            display:inline-block;
+            padding:12px 20px;
+            background:#2563eb;
+            color:white;
+            text-decoration:none;
+            border-radius:5px;
+                       ">
+        Verify Account
+    </a>
+    <p>
+        This link expires in 24 hours.
+    </p>
+</body>
+</html>
