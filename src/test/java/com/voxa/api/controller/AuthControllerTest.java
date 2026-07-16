@@ -40,8 +40,12 @@ public class AuthControllerTest {
     @Autowired
     private ObjectMapper objectMapper;
 
+    /**
+     * Register Test
+     * @throws Exception
+     */
     @Test
-    void shouldThrowMethodArgumentNotValidExceptionWhenRequestIsInvalid() throws Exception {
+    void shouldThrowMethodArgumentNotValidExceptionWhenRegisterUserRequestIsInvalid() throws Exception {
         RegisterUserRequest request = new RegisterUserRequest(
                 "",
                 "",
@@ -67,7 +71,7 @@ public class AuthControllerTest {
     }
 
     @Test
-    void shouldRegisterSuccessfully() throws Exception {
+    void shouldReturnWebResponseWhenRegisterIsSuccess() throws Exception {
         RegisterUserRequest request = new RegisterUserRequest(
                 "john@example.com",
                 "example",
@@ -92,8 +96,12 @@ public class AuthControllerTest {
         verify(authService).register(request);
     }
 
+    /**
+     * Verify Account Test
+     * @throws Exception
+     */
     @Test
-    void shouldReturnBadRequestWhenVerifyAccountTokenIsBlank() throws Exception {
+    void shouldThrowConstraintViolationExceptionWhenVerifyAccountTokenIsBlank() throws Exception {
         String token = "";
 
         mockMvc.perform(
@@ -117,7 +125,7 @@ public class AuthControllerTest {
     }
 
     @Test
-    void shouldReturnOkWhenVerifyAccountIsSuccess() throws Exception {
+    void shouldReturnWebResponseWhenVerifyAccountIsSuccess() throws Exception {
         String token = "token";
 
         UserResponse userResponse = UserResponse.builder()
@@ -127,7 +135,7 @@ public class AuthControllerTest {
 
         AuthenticationResponse authenticationResponse = AuthenticationResponse.builder()
                 .token("token")
-                .userResponse(userResponse)
+                .user(userResponse)
                 .build();
 
         when(authService.verifyAccount(token)).thenReturn(authenticationResponse);
@@ -147,16 +155,20 @@ public class AuthControllerTest {
                     assertTrue(webResponse.success());
                     assertEquals("Account verified successfully", webResponse.message());
                     assertEquals("token", webResponse.data().token());
-                    assertEquals("john@example.com", webResponse.data().userResponse().email());
-                    assertEquals("example", webResponse.data().userResponse().username());
+                    assertEquals("john@example.com", webResponse.data().user().email());
+                    assertEquals("example", webResponse.data().user().username());
                 }
         );
 
         verify(authService).verifyAccount(token);
     }
 
+    /**
+     * Login Test
+     * @throws Exception
+     */
     @Test
-    void shouldReturnBadRequestWhenLoginUserRequestBodyIsInvalid() throws Exception {
+    void shouldThrowMethodArgumentNotValidExceptionWhenLoginUserRequestIsInvalid() throws Exception {
         LoginUserRequest request = new LoginUserRequest("", "");
 
         mockMvc.perform(
@@ -177,7 +189,7 @@ public class AuthControllerTest {
     }
 
     @Test
-    void shouldReturnOkWhenLoginIsSuccess() throws Exception {
+    void shouldReturnWebResponseWhenLoginIsSuccess() throws Exception {
         LoginUserRequest request = new LoginUserRequest("example", "password");
 
         AuthenticationResponse authenticationResponse = AuthenticationResponse.builder()

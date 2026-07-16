@@ -7,7 +7,6 @@ import com.voxa.api.model.response.AuthenticationResponse;
 import com.voxa.api.repository.UserRepository;
 import com.voxa.api.util.TokenGenerator;
 import jakarta.mail.MessagingException;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
@@ -20,8 +19,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
-import org.springframework.security.authentication.AuthenticationManager;
-import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.authentication.*;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.server.ResponseStatusException;
@@ -58,8 +56,11 @@ public class AuthServiceTest {
     @InjectMocks
     private AuthService authService;
 
+    /**
+     * Register Test
+     */
     @Test
-    void shouldThrowExceptionWhenEmailAlreadyExists() {
+    void shouldThrowResponseStatusExceptionWhenEmailAlreadyExists() {
         // Given
         RegisterUserRequest request = new RegisterUserRequest(
                 "john@example.com",
@@ -92,7 +93,7 @@ public class AuthServiceTest {
     }
 
     @Test
-    void shouldThrowExceptionWhenUsernameAlreadyExists() {
+    void shouldThrowResponseStatusExceptionWhenUsernameAlreadyExists() {
         // Given
         RegisterUserRequest request = new RegisterUserRequest(
                 "john@example.com",
@@ -127,7 +128,7 @@ public class AuthServiceTest {
     }
 
     @Test
-    void shouldRegisterSuccessfully() throws MessagingException {
+    void shouldReturnVoidWhenRegisterIsSuccess() throws MessagingException {
         // Given
         RegisterUserRequest request = new RegisterUserRequest(
                 "john@example.com",
@@ -173,8 +174,11 @@ public class AuthServiceTest {
                 verificationToken);
     }
 
+    /**
+     * Verify Account Test
+     */
     @Test
-    void shouldThrowExceptionWhenVerificationTokenIsInvalid() {
+    void shouldThrowResponseStatusExceptionWhenVerificationTokenIsInvalid() {
         String verificationToken = "verification-token";
 
         String hashedVerificationToken = "hashed-verification-token";
@@ -196,7 +200,7 @@ public class AuthServiceTest {
     }
 
     @Test
-    void shouldThrowExceptionWhenVerificationTokenWasExpired() {
+    void shouldThrowResponseStatusExceptionWhenVerificationTokenWasExpired() {
         String verificationToken = "verification-token";
 
         String hashedVerificationToken = "hashed-verification-token";
@@ -223,7 +227,7 @@ public class AuthServiceTest {
     }
 
     @Test
-    void shouldThrowExceptionWhenUserAlreadyVerified() {
+    void shouldThrowResponseStatusExceptionWhenUserAlreadyVerified() {
         String verificationToken = "verification-token";
 
         String encodedVerificationToken = "hashed-verification-token";
@@ -251,7 +255,7 @@ public class AuthServiceTest {
     }
 
     @Test
-    void shouldVerifyAccountSuccessfully() {
+    void shouldReturnAuthenticationResponseWhenVerifyAccountIsSuccess() {
         String verificationToken = "verification-token";
 
         String hashedVerificationToken = "hashed-verification-token";
@@ -269,9 +273,9 @@ public class AuthServiceTest {
         AuthenticationResponse authenticationResponse = authService.verifyAccount(verificationToken);
 
         assertNotNull(authenticationResponse.token());
-        assertEquals(user.getEmail(), authenticationResponse.userResponse().email());
-        assertEquals(user.getUsername(), authenticationResponse.userResponse().username());
-        assertNull(authenticationResponse.userResponse().name());
+        assertEquals(user.getEmail(), authenticationResponse.user().email());
+        assertEquals(user.getUsername(), authenticationResponse.user().username());
+        assertNull(authenticationResponse.user().name());
 
         assertTrue(user.isEnabled());
         assertNull(user.getVerificationToken());
@@ -283,44 +287,88 @@ public class AuthServiceTest {
         verify(jwtService).generate(user);
     }
 
+    /**
+     * Login Test
+     */
     @Test
-    @Disabled
-    void shouldThrowExceptionWhenAuthenticateIsFailed() {
+    void shouldThrowInternalAuthenticationServiceExceptionWhenUserNotFound() {
         LoginUserRequest request = new LoginUserRequest("example", "password");
 
         when(authenticationManager.authenticate(
-                new UsernamePasswordAuthenticationToken(
-                        request.identifier(),
-                        request.password()
-                )
-        )).thenThrow(RuntimeException.class);
+                any(UsernamePasswordAuthenticationToken.class)
+        )).thenThrow(new InternalAuthenticationServiceException("Invalid credentials"));
 
-        assertThrows(RuntimeException.class, () -> authService.login(request));
+        InternalAuthenticationServiceException exception = assertThrows(InternalAuthenticationServiceException.class, () -> authService.login(request));
 
-        verify(authentication, never()).getDetails();
+        assertEquals("Invalid credentials", exception.getMessage());
+
+        verify(authenticationManager).authenticate(any(UsernamePasswordAuthenticationToken.class));
+        verify(authentication, never()).getPrincipal();
         verify(jwtService, never()).generate(any(User.class));
     }
 
     @Test
-    @Disabled
-    void shouldLoginSuccessfully() {
+    void shouldThrowDisabledExceptionWhenUserNotVerified() {
         LoginUserRequest request = new LoginUserRequest("example", "password");
 
-        User user = User.builder()
-                .id("USER-001")
-                .email("john@example.com")
-                .username("example")
-                .password("hashed-password")
-                .build();
+        when(authenticationManager.authenticate(
+                any(UsernamePasswordAuthenticationToken.class)
+        )).thenThrow(new DisabledException("User was disabled"));
+
+        DisabledException exception = assertThrows(DisabledException.class, () -> authService.login(request));
+
+        assertEquals("User was disabled", exception.getMessage());
+
+        verify(authenticationManager).authenticate(any(UsernamePasswordAuthenticationToken.class));
+        verify(authentication, never()).getPrincipal();
+        verify(jwtService, never()).generate(any(User.class));
+    }
+
+    @Test
+    void shouldThrowLockedExceptionWhenUserIsLocked() {
+        LoginUserRequest request = new LoginUserRequest("example", "password");
 
         when(authenticationManager.authenticate(
-                new UsernamePasswordAuthenticationToken(
-                        request.identifier(),
-                        request.password()
-                )
+                any(UsernamePasswordAuthenticationToken.class)
+        )).thenThrow(new LockedException("User account is locked"));
+
+        LockedException exception = assertThrows(LockedException.class, () -> authService.login(request));
+
+        assertEquals("User account is locked", exception.getMessage());
+
+        verify(authenticationManager).authenticate(any(UsernamePasswordAuthenticationToken.class));
+        verify(authentication, never()).getPrincipal();
+        verify(jwtService, never()).generate(any(User.class));
+    }
+
+    @Test
+    void shouldThrowBadCredentialsExceptionWhenIdentifierOrPasswordIsWrong() {
+        LoginUserRequest request = new LoginUserRequest("example", "password");
+
+        when(authenticationManager.authenticate(
+                any(UsernamePasswordAuthenticationToken.class)
+        )).thenThrow(new BadCredentialsException("Invalid credentials"));
+
+        BadCredentialsException exception = assertThrows(BadCredentialsException.class, () -> authService.login(request));
+
+        assertEquals("Invalid credentials", exception.getMessage());
+
+        verify(authenticationManager).authenticate(any(UsernamePasswordAuthenticationToken.class));
+        verify(authentication, never()).getPrincipal();
+        verify(jwtService, never()).generate(any(User.class));
+    }
+
+    @Test
+    void shouldReturnAuthenticationResponseWhenLoginIsSuccess() {
+        LoginUserRequest request = new LoginUserRequest("example", "password");
+
+        User user = User.builder().build();
+
+        when(authenticationManager.authenticate(
+                any(UsernamePasswordAuthenticationToken.class)
         )).thenReturn(authentication);
 
-        when(authentication.getDetails()).thenReturn(user);
+        when(authentication.getPrincipal()).thenReturn(user);
         when(jwtService.generate(user)).thenReturn("token");
 
         AuthenticationResponse response = authService.login(request);
@@ -328,7 +376,8 @@ public class AuthServiceTest {
         assertNotNull(response);
         assertEquals("token", response.token());
 
-        verify(authentication).getDetails();
+        verify(authenticationManager).authenticate(any(UsernamePasswordAuthenticationToken.class));
+        verify(authentication).getPrincipal();
         verify(jwtService).generate(user);
     }
 }

@@ -3,9 +3,14 @@ package com.voxa.api.exception;
 import com.voxa.api.model.response.ErrorResponse;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.ConstraintViolationException;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.security.authentication.BadCredentialsException;
+import org.springframework.security.authentication.DisabledException;
+import org.springframework.security.authentication.InternalAuthenticationServiceException;
+import org.springframework.security.authentication.LockedException;
 import org.springframework.web.HttpMediaTypeNotSupportedException;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -148,5 +153,66 @@ public class GlobalExceptionHandler {
                 .build();
 
         return ResponseEntity.status(exception.getStatusCode()).body(errorResponse);
+    }
+
+    @ExceptionHandler(
+            value = InternalAuthenticationServiceException.class,
+            produces = MediaType.APPLICATION_JSON_VALUE
+    )
+    public ResponseEntity<ErrorResponse> internalAuthenticationServiceException(HttpServletRequest request) {
+        ErrorResponse errorResponse = ErrorResponse.builder()
+                .timestamp(Instant.now())
+                .success(false)
+                .message("Invalid credentials")
+                .path(request.getRequestURI())
+                .build();
+
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(errorResponse);
+    }
+
+    @ExceptionHandler(
+            value = DisabledException.class,
+            produces = MediaType.APPLICATION_JSON_VALUE
+    )
+    public ResponseEntity<ErrorResponse> disabledException(HttpServletRequest request) {
+        ErrorResponse errorResponse = ErrorResponse.builder()
+                .timestamp(Instant.now())
+                .success(false)
+                .message("Your account not verified")
+                .path(request.getRequestURI())
+                .build();
+
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(errorResponse);
+    }
+
+    @ExceptionHandler(
+            value = LockedException.class,
+            produces = MediaType.APPLICATION_JSON_VALUE
+    )
+    public ResponseEntity<ErrorResponse> lockedException(HttpServletRequest request,
+                                                         LockedException exception) {
+        ErrorResponse errorResponse = ErrorResponse.builder()
+                .timestamp(Instant.now())
+                .success(false)
+                .message("Your account is locked. Please contact admin to request unlocked your account.")
+                .path(request.getRequestURI())
+                .build();
+
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(errorResponse);
+    }
+
+    @ExceptionHandler(
+            value = BadCredentialsException.class,
+            produces = MediaType.APPLICATION_JSON_VALUE
+    )
+    public ResponseEntity<ErrorResponse> badCredentialsException(HttpServletRequest request) {
+        ErrorResponse errorResponse = ErrorResponse.builder()
+                .timestamp(Instant.now())
+                .success(false)
+                .message("Invalid credentials")
+                .path(request.getRequestURI())
+                .build();
+
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(errorResponse);
     }
 }
