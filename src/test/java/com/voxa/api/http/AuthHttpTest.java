@@ -1,6 +1,7 @@
 package com.voxa.api.http;
 
 import com.voxa.api.model.entity.User;
+import com.voxa.api.model.request.LoginUserRequest;
 import com.voxa.api.model.request.RegisterUserRequest;
 import com.voxa.api.model.response.AuthenticationResponse;
 import com.voxa.api.model.response.WebResponse;
@@ -61,6 +62,7 @@ public class AuthHttpTest {
                 .bodyValue(request)
                 .exchange()
                 .expectStatus().isCreated()
+                .expectHeader().contentType(MediaType.APPLICATION_JSON)
                 .expectBody(new ParameterizedTypeReference<WebResponse<AuthenticationResponse>>() {
                 })
                 .value(webResponse -> {
@@ -91,11 +93,45 @@ public class AuthHttpTest {
                 .uri("/v1/auth/verify-account?token={token}", token)
                 .exchange()
                 .expectStatus().isOk()
+                .expectHeader().contentType(MediaType.APPLICATION_JSON)
                 .expectBody(new ParameterizedTypeReference<WebResponse<AuthenticationResponse>>() {
                 })
                 .value(webResponse -> {
                     assertTrue(webResponse.success());
                     assertEquals("Account verified successfully", webResponse.message());
+                });
+    }
+
+    @Test
+    void shouldLoginSuccessfully() {
+        User user = User.builder()
+                .email("john@example.com")
+                .username("example")
+                .password(passwordEncoder.encode("password"))
+                .isAccountNonExpired(true)
+                .isAccountNonLocked(true)
+                .isCredentialsNonExpired(true)
+                .isEnabled(true)
+                .verificationToken(hashService.hash("token"))
+                .verificationTokenExpiredAt(LocalDateTime.now().plusMinutes(30))
+                .build();
+
+        userRepository.save(user);
+
+        LoginUserRequest request = new LoginUserRequest("john@example.com", "password");
+
+        webTestClient.post()
+                .uri("/v1/auth/login")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(request)
+                .exchange()
+                .expectStatus().isOk()
+                .expectHeader().contentType(MediaType.APPLICATION_JSON)
+                .expectBody(new ParameterizedTypeReference<WebResponse<AuthenticationResponse>>() {
+                })
+                .value(webResponse -> {
+                    assertTrue(webResponse.success());
+                    assertEquals("User login successfully", webResponse.message());
                 });
     }
 }

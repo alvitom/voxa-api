@@ -5,6 +5,6 @@ import lombok.Builder;
 @Builder
 public record AuthenticationResponse(
         String token,
-        UserResponse userResponse
+        UserResponse user
 ) {
 }

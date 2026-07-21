@@ -14,6 +14,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.web.servlet.MockMvc;
@@ -57,8 +58,120 @@ public class AuthIntegrationTest {
         userRepository.deleteAll();
     }
 
+
+    /**
+     * Register Test
+     * @throws Exception
+     */
     @Test
-    void shouldRegisterSuccessfully() throws Exception {
+    void shouldReturnErrorConflictWhenEmailAlreadyExists() throws Exception {
+        User user = User.builder()
+                .email("john@example.com")
+                .username("example")
+                .password(passwordEncoder.encode("password"))
+                .build();
+
+        userRepository.save(user);
+
+        RegisterUserRequest request = new RegisterUserRequest(
+                "john@example.com",
+                "example",
+                "password",
+                "password"
+        );
+
+        mockMvc.perform(
+                post(basePath + "/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request))
+        ).andExpectAll(
+                status().isConflict(),
+                content().contentType(MediaType.APPLICATION_JSON),
+                result -> {
+                    String responseBody = result.getResponse().getContentAsString();
+
+                    assertEquals(HttpStatus.CONFLICT.value(), result.getResponse().getStatus());
+
+                    ErrorResponse errorResponse = objectMapper.readValue(responseBody, new TypeReference<>() {
+                    });
+
+                    assertFalse(errorResponse.success());
+                    assertTrue(errorResponse.message().contains("Email already exists"));
+                }
+        );
+    }
+
+    @Test
+    void shouldReturnErrorConflictWhenUsernameAlreadyExists() throws Exception {
+        User user = User.builder()
+                .email("doe@example.com")
+                .username("example")
+                .password(passwordEncoder.encode("password"))
+                .build();
+
+        userRepository.save(user);
+
+        RegisterUserRequest request = new RegisterUserRequest(
+                "john@example.com",
+                "example",
+                "password",
+                "password"
+        );
+
+        mockMvc.perform(
+                post(basePath + "/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request))
+        ).andExpectAll(
+                status().isConflict(),
+                content().contentType(MediaType.APPLICATION_JSON),
+                result -> {
+                    String responseBody = result.getResponse().getContentAsString();
+
+                    assertEquals(HttpStatus.CONFLICT.value(), result.getResponse().getStatus());
+
+                    ErrorResponse errorResponse = objectMapper.readValue(responseBody, new TypeReference<>() {
+                    });
+
+                    assertFalse(errorResponse.success());
+                    assertTrue(errorResponse.message().contains("Username already exists"));
+                }
+        );
+    }
+
+    @Test
+    void shouldReturnErrorBadRequestWhenRegisterUserRequestIsInvalid() throws Exception {
+        RegisterUserRequest request = new RegisterUserRequest(
+                "",
+                "",
+                "",
+                ""
+        );
+
+        mockMvc.perform(
+                post(basePath + "/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request))
+        ).andExpectAll(
+                status().isBadRequest(),
+                content().contentType(MediaType.APPLICATION_JSON),
+                result -> {
+                    String responseBody = result.getResponse().getContentAsString();
+
+                    assertEquals(HttpStatus.BAD_REQUEST.value(), result.getResponse().getStatus());
+
+                    ErrorResponse errorResponse = objectMapper.readValue(responseBody, new TypeReference<>() {
+                    });
+
+                    assertFalse(errorResponse.success());
+                    assertTrue(errorResponse.message().contains("Validation error"));
+                    assertEquals(6, errorResponse.errors().size());
+                }
+        );
+    }
+
+    @Test
+    void shouldReturnSuccessCreatedWhenRegisterIsSuccess() throws Exception {
         RegisterUserRequest request = new RegisterUserRequest(
                 "john@example.com",
                 "example",
@@ -76,17 +189,25 @@ public class AuthIntegrationTest {
                 result -> {
                     String responseBody = result.getResponse().getContentAsString();
 
+                    assertEquals(HttpStatus.CREATED.value(), result.getResponse().getStatus());
+
                     WebResponse<AuthenticationResponse> webResponse = objectMapper.readValue(responseBody, new TypeReference<>() {
                     });
 
                     assertTrue(webResponse.success());
                     assertEquals("Registration successful. Please check your email.", webResponse.message());
+                    assertNull(webResponse.data());
                 }
         );
     }
 
+
+    /**
+     * Verify Account Test
+     * @throws Exception
+     */
     @Test
-    void shouldReturnForbiddenWhenVerifyAccountTokenIsInvalid() throws Exception {
+    void shouldReturnErrorForbiddenWhenVerifyAccountTokenIsInvalid() throws Exception {
         User user = User.builder()
                 .email("john@example.com")
                 .username("example")
@@ -112,6 +233,8 @@ public class AuthIntegrationTest {
                 result -> {
                     String response = result.getResponse().getContentAsString();
 
+                    assertEquals(HttpStatus.FORBIDDEN.value(), result.getResponse().getStatus());
+
                     ErrorResponse errorResponse = objectMapper.readValue(response, new TypeReference<>() {
                     });
 
@@ -122,7 +245,7 @@ public class AuthIntegrationTest {
     }
 
     @Test
-    void shouldReturnForbiddenWhenVerifyAccountTokenWasExpired() throws Exception {
+    void shouldReturnErrorForbiddenWhenVerifyAccountTokenWasExpired() throws Exception {
         User user = User.builder()
                 .email("john@example.com")
                 .username("example")
@@ -148,6 +271,8 @@ public class AuthIntegrationTest {
                 result -> {
                     String response = result.getResponse().getContentAsString();
 
+                    assertEquals(HttpStatus.FORBIDDEN.value(), result.getResponse().getStatus());
+
                     ErrorResponse errorResponse = objectMapper.readValue(response, new TypeReference<>() {
                     });
 
@@ -158,7 +283,7 @@ public class AuthIntegrationTest {
     }
 
     @Test
-    void shouldReturnForbiddenWhenVerifyAccountUserAlreadyVerified() throws Exception {
+    void shouldReturnErrorForbiddenWhenVerifyAccountUserAlreadyVerified() throws Exception {
         User user = User.builder()
                 .email("john@example.com")
                 .username("example")
@@ -184,6 +309,8 @@ public class AuthIntegrationTest {
                 result -> {
                     String response = result.getResponse().getContentAsString();
 
+                    assertEquals(HttpStatus.FORBIDDEN.value(), result.getResponse().getStatus());
+
                     ErrorResponse errorResponse = objectMapper.readValue(response, new TypeReference<>() {
                     });
 
@@ -194,7 +321,33 @@ public class AuthIntegrationTest {
     }
 
     @Test
-    void shouldReturnOkWhenVerifyAccountIsSuccess() throws Exception {
+    void shouldReturnErrorBadRequestWhenVerifyAccountTokenIsBlank() throws Exception {
+        String requestParam = "";
+
+        mockMvc.perform(
+                post(basePath + "/verify-account")
+                        .queryParam("token", requestParam)
+        ).andExpectAll(
+                status().isBadRequest(),
+                content().contentType(MediaType.APPLICATION_JSON),
+                result -> {
+                    String response = result.getResponse().getContentAsString();
+
+                    assertEquals(HttpStatus.BAD_REQUEST.value(), result.getResponse().getStatus());
+
+                    ErrorResponse errorResponse = objectMapper.readValue(response, new TypeReference<>() {
+                    });
+
+                    assertFalse(errorResponse.success());
+                    assertEquals("Validation error", errorResponse.message());
+                    assertNotNull(errorResponse.errors());
+                    assertEquals(1, errorResponse.errors().size());
+                }
+        );
+    }
+
+    @Test
+    void shouldReturnSuccessOkWhenVerifyAccountIsSuccess() throws Exception {
         User user = User.builder()
                 .email("john@example.com")
                 .username("example")
@@ -220,20 +373,27 @@ public class AuthIntegrationTest {
                 result -> {
                     String response = result.getResponse().getContentAsString();
 
+                    assertEquals(HttpStatus.OK.value(), result.getResponse().getStatus());
+
                     WebResponse<AuthenticationResponse> webResponse = objectMapper.readValue(response, new TypeReference<>() {
                     });
 
                     assertTrue(webResponse.success());
                     assertEquals("Account verified successfully", webResponse.message());
                     assertNotNull(webResponse.data().token());
-                    assertEquals("john@example.com", webResponse.data().userResponse().email());
-                    assertEquals("example", webResponse.data().userResponse().username());
+                    assertEquals("john@example.com", webResponse.data().user().email());
+                    assertEquals("example", webResponse.data().user().username());
                 }
         );
     }
 
+
+    /**
+     * Login Test
+     * @throws Exception
+     */
     @Test
-    void shouldReturnUnauthorizedWhenLoginIsFailed() throws Exception {
+    void shouldReturnErrorUnauthorizedWhenUserNotFound() throws Exception {
         User user = User.builder()
                 .email("john@example.com")
                 .username("example")
@@ -246,7 +406,7 @@ public class AuthIntegrationTest {
 
         userRepository.save(user);
 
-        LoginUserRequest request = new LoginUserRequest("wrong", "example");
+        LoginUserRequest request = new LoginUserRequest("not-found", "example");
 
         mockMvc.perform(
                 post(basePath + "/login")
@@ -256,7 +416,196 @@ public class AuthIntegrationTest {
                 status().isUnauthorized(),
                 content().contentType(MediaType.APPLICATION_JSON),
                 result -> {
-                    System.out.println(result.getResponse().getContentAsString());
+                    assertEquals(HttpStatus.UNAUTHORIZED.value(), result.getResponse().getStatus());
+
+                    String responseBody = result.getResponse().getContentAsString();
+
+                    ErrorResponse errorResponse = objectMapper.readValue(responseBody, new TypeReference<>() {
+                    });
+
+                    assertFalse(errorResponse.success());
+                    assertEquals("Invalid credentials", errorResponse.message());
+                }
+        );
+    }
+
+    @Test
+    void shouldReturnErrorUnauthorizedWhenUserNotVerified() throws Exception {
+        User user = User.builder()
+                .email("john@example.com")
+                .username("example")
+                .password(passwordEncoder.encode("password"))
+                .isAccountNonExpired(true)
+                .isAccountNonLocked(true)
+                .isCredentialsNonExpired(true)
+                .isEnabled(false)
+                .build();
+
+        userRepository.save(user);
+
+        LoginUserRequest request = new LoginUserRequest("example", "example");
+
+        mockMvc.perform(
+                post(basePath + "/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request))
+        ).andExpectAll(
+                status().isUnauthorized(),
+                content().contentType(MediaType.APPLICATION_JSON),
+                result -> {
+                    assertEquals(HttpStatus.UNAUTHORIZED.value(), result.getResponse().getStatus());
+
+                    String responseBody = result.getResponse().getContentAsString();
+
+                    ErrorResponse errorResponse = objectMapper.readValue(responseBody, new TypeReference<>() {
+                    });
+
+                    assertFalse(errorResponse.success());
+                    assertEquals("Your account not verified", errorResponse.message());
+                }
+        );
+    }
+
+    @Test
+    void shouldReturnErrorUnauthorizedWhenUserIsLocked() throws Exception {
+        User user = User.builder()
+                .email("john@example.com")
+                .username("example")
+                .password(passwordEncoder.encode("password"))
+                .isAccountNonExpired(true)
+                .isAccountNonLocked(false)
+                .isCredentialsNonExpired(true)
+                .isEnabled(true)
+                .build();
+
+        userRepository.save(user);
+
+        LoginUserRequest request = new LoginUserRequest("example", "password");
+
+        mockMvc.perform(
+                post(basePath + "/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request))
+        ).andExpectAll(
+                status().isUnauthorized(),
+                content().contentType(MediaType.APPLICATION_JSON),
+                result -> {
+                    assertEquals(HttpStatus.UNAUTHORIZED.value(), result.getResponse().getStatus());
+
+                    String responseBody = result.getResponse().getContentAsString();
+
+                    ErrorResponse errorResponse = objectMapper.readValue(responseBody, new TypeReference<>() {
+                    });
+
+                    assertFalse(errorResponse.success());
+                    assertTrue(errorResponse.message().contains("Your account is locked"));
+                }
+        );
+    }
+
+    @Test
+    void shouldReturnErrorUnauthorizedWhenIdentifierOrPasswordIsWrong() throws Exception {
+        User user = User.builder()
+                .email("john@example.com")
+                .username("example")
+                .password(passwordEncoder.encode("password"))
+                .isAccountNonExpired(true)
+                .isAccountNonLocked(true)
+                .isCredentialsNonExpired(true)
+                .isEnabled(true)
+                .build();
+
+        userRepository.save(user);
+
+        LoginUserRequest request = new LoginUserRequest("example", "example");
+
+        mockMvc.perform(
+                post(basePath + "/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request))
+        ).andExpectAll(
+                status().isUnauthorized(),
+                content().contentType(MediaType.APPLICATION_JSON),
+                result -> {
+                    assertEquals(HttpStatus.UNAUTHORIZED.value(), result.getResponse().getStatus());
+
+                    String responseBody = result.getResponse().getContentAsString();
+
+                    ErrorResponse errorResponse = objectMapper.readValue(responseBody, new TypeReference<>() {
+                    });
+
+                    assertFalse(errorResponse.success());
+                    assertEquals("Invalid credentials", errorResponse.message());
+                }
+        );
+    }
+
+    @Test
+    void shouldReturnErrorBadRequestWhenLoginUserRequestIsInvalid() throws Exception {
+        LoginUserRequest request = new LoginUserRequest("", "");
+
+        mockMvc.perform(
+                post(basePath + "/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request))
+        ).andExpectAll(
+                status().isBadRequest(),
+                content().contentType(MediaType.APPLICATION_JSON),
+                result -> {
+                    assertEquals(HttpStatus.BAD_REQUEST.value(), result.getResponse().getStatus());
+
+                    String responseBody = result.getResponse().getContentAsString();
+
+                    ErrorResponse errorResponse = objectMapper.readValue(responseBody, new TypeReference<>() {
+                    });
+
+                    assertFalse(errorResponse.success());
+                    assertEquals("Validation error", errorResponse.message());
+                    assertNotNull(errorResponse.errors());
+                    assertEquals(2, errorResponse.errors().size());
+                }
+        );
+    }
+
+    @Test
+    void shouldReturnSuccessOkWhenLoginIsSuccess() throws Exception {
+        User user = User.builder()
+                .email("john@example.com")
+                .username("example")
+                .password(passwordEncoder.encode("password"))
+                .isAccountNonExpired(true)
+                .isAccountNonLocked(true)
+                .isCredentialsNonExpired(true)
+                .isEnabled(true)
+                .build();
+
+        userRepository.save(user);
+
+        LoginUserRequest request = new LoginUserRequest("example", "password");
+
+        mockMvc.perform(
+                post(basePath + "/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request))
+        ).andExpectAll(
+                status().isOk(),
+                content().contentType(MediaType.APPLICATION_JSON),
+                result -> {
+                    assertEquals(HttpStatus.OK.value(), result.getResponse().getStatus());
+
+                    String responseBody = result.getResponse().getContentAsString();
+
+                    WebResponse<AuthenticationResponse> webResponse = objectMapper.readValue(responseBody, new TypeReference<>() {
+                    });
+
+                    assertTrue(webResponse.success());
+                    assertEquals("User login successfully", webResponse.message());
+
+                    AuthenticationResponse authenticationResponse = webResponse.data();
+
+                    assertNotNull(authenticationResponse.token());
+                    assertEquals("john@example.com", authenticationResponse.user().email());
+                    assertEquals("example", authenticationResponse.user().username());
                 }
         );
     }
