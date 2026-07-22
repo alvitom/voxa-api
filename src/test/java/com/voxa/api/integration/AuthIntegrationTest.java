@@ -2,10 +2,7 @@ package com.voxa.api.integration;
 
 import com.voxa.api.config.JwtProperties;
 import com.voxa.api.model.entity.User;
-import com.voxa.api.model.request.LoginUserRequest;
-import com.voxa.api.model.request.RefreshTokenUserRequest;
-import com.voxa.api.model.request.RegisterUserRequest;
-import com.voxa.api.model.request.VerificationAccountUserRequest;
+import com.voxa.api.model.request.*;
 import com.voxa.api.model.response.AuthenticationResponse;
 import com.voxa.api.model.response.ErrorResponse;
 import com.voxa.api.model.response.WebResponse;
@@ -1071,6 +1068,207 @@ public class AuthIntegrationTest {
 
                     assertTrue(webResponse.success());
                     assertEquals("Logout successfully", webResponse.message());
+                }
+        );
+    }
+
+
+    /**
+     * Forgot Password Test
+     */
+    @Test
+    void shouldReturnErrorBadRequestWhenForgotPasswordIdentifierIsBlank() throws Exception {
+        ForgotPasswordRequest request = new ForgotPasswordRequest("");
+
+        mockMvc.perform(
+                post(basePath + "/forgot-password")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request))
+        ).andExpectAll(
+                status().isBadRequest(),
+                content().contentType(MediaType.APPLICATION_JSON),
+                result -> {
+                    String responseBody = result.getResponse().getContentAsString();
+
+                    ErrorResponse errorResponse = objectMapper.readValue(responseBody, new TypeReference<>() {
+                    });
+
+                    assertFalse(errorResponse.success());
+                    assertEquals("Validation error", errorResponse.message());
+                    assertNotNull(errorResponse.errors());
+                    assertEquals(1, errorResponse.errors().size());
+                }
+        );
+    }
+
+    @Test
+    void shouldReturnErrorNotFoundWhenForgotPasswordUserDoesNotExists() throws Exception {
+        ForgotPasswordRequest request = new ForgotPasswordRequest("example");
+
+        mockMvc.perform(
+                post(basePath + "/forgot-password")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request))
+        ).andExpectAll(
+                status().isNotFound(),
+                content().contentType(MediaType.APPLICATION_JSON),
+                result -> {
+                    String responseBody = result.getResponse().getContentAsString();
+
+                    ErrorResponse errorResponse = objectMapper.readValue(responseBody, new TypeReference<>() {
+                    });
+
+                    assertFalse(errorResponse.success());
+                    assertEquals("User not found", errorResponse.message());
+                }
+        );
+    }
+
+    @Test
+    void shouldReturnSuccessOkWhenForgotPasswordIsSuccess() throws Exception {
+        User user = User.builder()
+                .email("john@example.com")
+                .username("example")
+                .password(passwordEncoder.encode("password"))
+                .build();
+
+        userRepository.save(user);
+
+        ForgotPasswordRequest request = new ForgotPasswordRequest("example");
+
+        mockMvc.perform(
+                post(basePath + "/forgot-password")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request))
+        ).andExpectAll(
+                status().isOk(),
+                content().contentType(MediaType.APPLICATION_JSON),
+                result -> {
+                    String responseBody = result.getResponse().getContentAsString();
+
+                    WebResponse<?> webResponse = objectMapper.readValue(responseBody, new TypeReference<>() {
+                    });
+
+                    assertTrue(webResponse.success());
+                    assertTrue(webResponse.message().contains("Reset password request successful"));
+                }
+        );
+    }
+
+
+    /**
+     * Reset Password Test
+     */
+    @Test
+    void shouldReturnErrorBadRequestWhenResetPasswordTokenIsBlank() throws Exception {
+        ResetPasswordRequest request = new ResetPasswordRequest("");
+
+        mockMvc.perform(
+                post(basePath + "/reset-password")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request))
+        ).andExpectAll(
+                status().isBadRequest(),
+                content().contentType(MediaType.APPLICATION_JSON),
+                result -> {
+                    String responseBody = result.getResponse().getContentAsString();
+
+                    ErrorResponse errorResponse = objectMapper.readValue(responseBody, new TypeReference<>() {
+                    });
+
+                    assertFalse(errorResponse.success());
+                    assertEquals("Validation error", errorResponse.message());
+                    assertNotNull(errorResponse.errors());
+                    assertEquals(1, errorResponse.errors().size());
+                }
+        );
+    }
+
+    @Test
+    void shouldReturnErrorForbiddenWhenResetPasswordTokenIsInvalid() throws Exception {
+        ResetPasswordRequest request = new ResetPasswordRequest("token");
+
+        mockMvc.perform(
+                post(basePath + "/reset-password")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request))
+        ).andExpectAll(
+                status().isForbidden(),
+                content().contentType(MediaType.APPLICATION_JSON),
+                result -> {
+                    String responseBody = result.getResponse().getContentAsString();
+
+                    ErrorResponse errorResponse = objectMapper.readValue(responseBody, new TypeReference<>() {
+                    });
+
+                    assertFalse(errorResponse.success());
+                    assertEquals("Token is invalid", errorResponse.message());
+                }
+        );
+    }
+
+    @Test
+    void shouldReturnErrorForbiddenWhenResetPasswordTokenWasExpired() throws Exception {
+        User user = User.builder()
+                .email("john@example.com")
+                .username("example")
+                .password(passwordEncoder.encode("password"))
+                .passwordResetToken(hs256Service.hash("token"))
+                .passwordResetTokenExpiredAt(LocalDateTime.now().minusMinutes(30))
+                .build();
+
+        userRepository.save(user);
+
+        ResetPasswordRequest request = new ResetPasswordRequest("token");
+
+        mockMvc.perform(
+                post(basePath + "/reset-password")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request))
+        ).andExpectAll(
+                status().isForbidden(),
+                content().contentType(MediaType.APPLICATION_JSON),
+                result -> {
+                    String responseBody = result.getResponse().getContentAsString();
+
+                    ErrorResponse errorResponse = objectMapper.readValue(responseBody, new TypeReference<>() {
+                    });
+
+                    assertFalse(errorResponse.success());
+                    assertTrue(errorResponse.message().contains("Token was expired"));
+                }
+        );
+    }
+
+    @Test
+    void shouldReturnSuccessOkWhenResetPasswordIsSuccess() throws Exception {
+        User user = User.builder()
+                .email("john@example.com")
+                .username("example")
+                .password(passwordEncoder.encode("password"))
+                .passwordResetToken(hs256Service.hash("token"))
+                .passwordResetTokenExpiredAt(LocalDateTime.now().plusMinutes(30))
+                .build();
+
+        userRepository.save(user);
+
+        ResetPasswordRequest request = new ResetPasswordRequest("token");
+
+        mockMvc.perform(
+                post(basePath + "/reset-password")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request))
+        ).andExpectAll(
+                status().isOk(),
+                content().contentType(MediaType.APPLICATION_JSON),
+                result -> {
+                    String responseBody = result.getResponse().getContentAsString();
+
+                    WebResponse<?> webResponse = objectMapper.readValue(responseBody, new TypeReference<>() {
+                    });
+
+                    assertTrue(webResponse.success());
+                    assertTrue(webResponse.message().contains("Reset password successfully"));
                 }
         );
     }

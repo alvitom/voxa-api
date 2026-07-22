@@ -2,10 +2,7 @@ package com.voxa.api.http;
 
 import com.voxa.api.config.JwtProperties;
 import com.voxa.api.model.entity.User;
-import com.voxa.api.model.request.LoginUserRequest;
-import com.voxa.api.model.request.RefreshTokenUserRequest;
-import com.voxa.api.model.request.RegisterUserRequest;
-import com.voxa.api.model.request.VerificationAccountUserRequest;
+import com.voxa.api.model.request.*;
 import com.voxa.api.model.response.AuthenticationResponse;
 import com.voxa.api.model.response.WebResponse;
 import com.voxa.api.repository.UserRepository;
@@ -227,6 +224,62 @@ public class AuthHttpTest {
                 .value(webResponse -> {
                     assertTrue(webResponse.success());
                     assertEquals("Logout successfully", webResponse.message());
+                });
+    }
+
+    @Test
+    void shouldForgotPasswordSuccessfully() {
+        User user = User.builder()
+                .email("john@example.com")
+                .username("example")
+                .password(passwordEncoder.encode("password"))
+                .build();
+
+        userRepository.save(user);
+
+        ForgotPasswordRequest request = new ForgotPasswordRequest("example");
+
+        webTestClient.post()
+                .uri("/v1/auth/forgot-password")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(request)
+                .exchange()
+                .expectStatus().isOk()
+                .expectHeader().contentType(MediaType.APPLICATION_JSON)
+                .expectBody(new ParameterizedTypeReference<WebResponse<AuthenticationResponse>>() {
+                })
+                .value(webResponse -> {
+                    assertTrue(webResponse.success());
+                    assertTrue(webResponse.message().contains("Reset password request successful"));
+                });
+    }
+
+    @Test
+    void shouldResetPasswordSuccessfully() {
+        User user = User.builder()
+                .email("john@example.com")
+                .username("example")
+                .password(passwordEncoder.encode("password"))
+                .passwordResetToken(hs256Service.hash("token"))
+                .passwordResetTokenExpiredAt(LocalDateTime.now().plusMinutes(30))
+                .build();
+
+        userRepository.save(user);
+
+        ResetPasswordRequest request = new ResetPasswordRequest("token");
+
+        webTestClient.post()
+                .uri("/v1/auth/reset-password")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(request)
+                .exchange()
+                .expectStatus().isOk()
+                .expectHeader().contentType(MediaType.APPLICATION_JSON)
+                .expectBody(new ParameterizedTypeReference<WebResponse<AuthenticationResponse>>() {
+                })
+                .value(webResponse -> {
+                    assertTrue(webResponse.success());
+                    assertTrue(webResponse.message().contains("Reset password successfully"));
                 });
     }
 }

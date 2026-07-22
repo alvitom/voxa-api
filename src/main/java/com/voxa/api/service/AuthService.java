@@ -249,4 +249,34 @@ public class AuthService {
 
         userRepository.save(user);
     }
+
+    public void forgotPassword(String identifier) throws MessagingException {
+        User user = userRepository.findByEmailOrUsername(identifier, identifier)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found"));
+
+        String passwordResetToken = tokenGenerator.generate(20);
+
+        user.setPasswordResetToken(hs256Service.hash(passwordResetToken));
+        user.setPasswordResetTokenExpiredAt(LocalDateTime.now().plusMinutes(30));
+
+        userRepository.save(user);
+
+        mailService.sendResetPassword(user.getEmail(), user.getUsername(), passwordResetToken);
+    }
+
+    public void resetPassword(String passwordResetToken) {
+        String hashedPasswordResetToken = hs256Service.hash(passwordResetToken);
+
+        User user = userRepository.findByPasswordResetToken(hashedPasswordResetToken)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.FORBIDDEN, "Token is invalid"));
+
+        if (LocalDateTime.now().isAfter(user.getPasswordResetTokenExpiredAt())) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Token was expired. Please request again");
+        }
+
+        user.setPasswordResetToken(null);
+        user.setPasswordResetTokenExpiredAt(null);
+
+        userRepository.save(user);
+    }
 }
