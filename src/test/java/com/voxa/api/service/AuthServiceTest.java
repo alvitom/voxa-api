@@ -774,4 +774,133 @@ public class AuthServiceTest {
         verify(hashService).hash(refreshToken);
         verify(userRepository).save(user);
     }
+
+
+    /**
+     * Forgot Password Test
+     */
+    @Test
+    void shouldThrowResponseStatusExceptionWhenForgotPasswordUserNotFound() {
+        String identifier = "example";
+
+        when(userRepository.findByEmailOrUsername(identifier, identifier)).thenReturn(Optional.empty());
+
+        ResponseStatusException exception = assertThrows(ResponseStatusException.class, () -> authService.forgotPassword(identifier));
+
+        assertEquals(HttpStatus.NOT_FOUND, exception.getStatusCode());
+        assertEquals("User not found", exception.getReason());
+
+        verify(userRepository).findByEmailOrUsername(identifier, identifier);
+
+        verifyNoInteractions(
+                tokenGenerator,
+                hashService,
+                mailService
+        );
+
+        verifyNoMoreInteractions(
+                userRepository
+        );
+    }
+
+    @Test
+    void shouldReturnVoidWhenForgotPasswordIsSuccess() throws MessagingException {
+        User user = User.builder()
+                .email("john@example.com")
+                .username("example")
+                .password("password")
+                .build();
+
+        String identifier = "example";
+
+        String passwordResetToken = "password-reset-token";
+        String hashedPasswordResetToken = "hashed-password-reset-token";
+
+        when(userRepository.findByEmailOrUsername(identifier, identifier)).thenReturn(Optional.of(user));
+        when(tokenGenerator.generate(anyInt())).thenReturn(passwordResetToken);
+        when(hashService.hash(passwordResetToken)).thenReturn(hashedPasswordResetToken);
+
+        authService.forgotPassword(identifier);
+
+        assertNotNull(user.getPasswordResetToken());
+        assertNotNull(user.getPasswordResetTokenExpiredAt());
+
+        verify(userRepository).findByEmailOrUsername(identifier, identifier);
+        verify(tokenGenerator).generate(anyInt());
+        verify(hashService).hash(passwordResetToken);
+        verify(userRepository).save(user);
+        verify(mailService).sendResetPassword(user.getEmail(), user.getUsername(), passwordResetToken);
+    }
+
+
+    /**
+     * Reset Password Test
+     */
+    @Test
+    void shouldThrowResponseStatusExceptionWhenPasswordResetTokenIsInvalid() {
+        String passwordResetToken = "password-reset-token";
+        String hashedPasswordResetToken = "hashed-password-reset-token";
+
+        when(hashService.hash(passwordResetToken)).thenReturn(hashedPasswordResetToken);
+        when(userRepository.findByPasswordResetToken(hashedPasswordResetToken)).thenReturn(Optional.empty());
+
+        ResponseStatusException exception = assertThrows(ResponseStatusException.class, () -> authService.resetPassword(passwordResetToken));
+
+        assertEquals(HttpStatus.FORBIDDEN, exception.getStatusCode());
+        assertEquals("Token is invalid", exception.getReason());
+
+        verify(hashService).hash(passwordResetToken);
+        verify(userRepository).findByPasswordResetToken(hashedPasswordResetToken);
+
+        verifyNoMoreInteractions(
+                userRepository
+        );
+    }
+
+    @Test
+    void shouldThrowResponseStatusExceptionWhenPasswordResetTokenWasExpired() {
+        String passwordResetToken = "password-reset-token";
+        String hashedPasswordResetToken = "hashed-password-reset-token";
+
+        User user = User.builder()
+                .passwordResetTokenExpiredAt(LocalDateTime.now().minusMinutes(30))
+                .build();
+
+        when(hashService.hash(passwordResetToken)).thenReturn(hashedPasswordResetToken);
+        when(userRepository.findByPasswordResetToken(hashedPasswordResetToken)).thenReturn(Optional.of(user));
+
+        ResponseStatusException exception = assertThrows(ResponseStatusException.class, () -> authService.resetPassword(passwordResetToken));
+
+        assertEquals(HttpStatus.FORBIDDEN, exception.getStatusCode());
+        assertTrue(exception.getReason().contains("Token was expired"));
+
+        verify(hashService).hash(passwordResetToken);
+        verify(userRepository).findByPasswordResetToken(hashedPasswordResetToken);
+
+        verifyNoMoreInteractions(
+                userRepository
+        );
+    }
+
+    @Test
+    void shouldReturnVoidWhenResetPasswordIsSuccess() {
+        String passwordResetToken = "password-reset-token";
+        String hashedPasswordResetToken = "hashed-password-reset-token";
+
+        User user = User.builder()
+                .passwordResetTokenExpiredAt(LocalDateTime.now().plusMinutes(30))
+                .build();
+
+        when(hashService.hash(passwordResetToken)).thenReturn(hashedPasswordResetToken);
+        when(userRepository.findByPasswordResetToken(hashedPasswordResetToken)).thenReturn(Optional.of(user));
+
+        authService.resetPassword(passwordResetToken);
+
+        assertNull(user.getPasswordResetToken());
+        assertNull(user.getPasswordResetTokenExpiredAt());
+
+        verify(hashService).hash(passwordResetToken);
+        verify(userRepository).findByPasswordResetToken(hashedPasswordResetToken);
+        verify(userRepository).save(user);
+    }
 }

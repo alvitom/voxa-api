@@ -1,9 +1,6 @@
 package com.voxa.api.controller;
 
-import com.voxa.api.model.request.LoginUserRequest;
-import com.voxa.api.model.request.RefreshTokenUserRequest;
-import com.voxa.api.model.request.RegisterUserRequest;
-import com.voxa.api.model.request.VerificationAccountUserRequest;
+import com.voxa.api.model.request.*;
 import com.voxa.api.model.response.ErrorResponse;
 import com.voxa.api.model.response.AuthenticationResponse;
 import com.voxa.api.model.response.UserResponse;
@@ -350,5 +347,113 @@ public class AuthControllerTest {
         );
 
         verify(authService).logout(request.refreshToken());
+    }
+
+
+    /**
+     * Forgot Password Test
+     */
+    @Test
+    void shouldThrowMethodArgumentNotValidExceptionWhenForgotPasswordRequestIsInvalid() throws Exception {
+        ForgotPasswordRequest request = new ForgotPasswordRequest("");
+
+        mockMvc.perform(
+                post(basePath + "/forgot-password")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request))
+        ).andExpectAll(
+                status().isBadRequest(),
+                content().contentType(MediaType.APPLICATION_JSON),
+                result -> {
+                    String response = result.getResponse().getContentAsString();
+
+                    ErrorResponse errorResponse = objectMapper.readValue(response, new TypeReference<>() {
+                    });
+
+                    assertFalse(errorResponse.success());
+                    assertEquals("Validation error", errorResponse.message());
+                }
+        );
+
+        verify(authService, never()).forgotPassword(request.identifier());
+    }
+
+    @Test
+    void shouldReturnWebResponseWhenForgotPasswordIsSuccess() throws Exception {
+        ForgotPasswordRequest request = new ForgotPasswordRequest("example");
+
+        mockMvc.perform(
+                post(basePath + "/forgot-password")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request))
+        ).andExpectAll(
+                status().isOk(),
+                content().contentType(MediaType.APPLICATION_JSON),
+                result -> {
+                    String responseBody = result.getResponse().getContentAsString();
+
+                    WebResponse<AuthenticationResponse> webResponse = objectMapper.readValue(responseBody, new TypeReference<>() {
+                    });
+
+                    assertTrue(webResponse.success());
+                    assertTrue(webResponse.message().contains("Reset password request successful"));
+                }
+        );
+
+        verify(authService).forgotPassword(request.identifier());
+    }
+
+
+    /**
+     * Reset Password Test
+     */
+    @Test
+    void shouldThrowMethodArgumentNotValidExceptionWhenResetPasswordRequestIsInvalid() throws Exception {
+        ResetPasswordRequest request = new ResetPasswordRequest("");
+
+        mockMvc.perform(
+                post(basePath + "/reset-password")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request))
+        ).andExpectAll(
+                status().isBadRequest(),
+                content().contentType(MediaType.APPLICATION_JSON),
+                result -> {
+                    String response = result.getResponse().getContentAsString();
+
+                    ErrorResponse errorResponse = objectMapper.readValue(response, new TypeReference<>() {
+                    });
+
+                    assertFalse(errorResponse.success());
+                    assertEquals("Validation error", errorResponse.message());
+                }
+        );
+
+        verify(authService, never()).resetPassword(request.passwordResetToken());
+    }
+
+    @Test
+    void shouldReturnWebResponseWhenResetPasswordIsSuccess() throws Exception {
+        ResetPasswordRequest request = new ResetPasswordRequest("password-reset-token");
+
+        mockMvc.perform(
+                post(basePath + "/reset-password")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request))
+        ).andExpectAll(
+                status().isOk(),
+                content().contentType(MediaType.APPLICATION_JSON),
+                result -> {
+                    String responseBody = result.getResponse().getContentAsString();
+
+                    WebResponse<AuthenticationResponse> webResponse = objectMapper.readValue(responseBody, new TypeReference<>() {
+                    });
+
+                    assertTrue(webResponse.success());
+                    assertTrue(webResponse.message().contains("Reset password successfully"));
+                }
+        );
+
+        verify(authService).resetPassword(request.passwordResetToken());
     }
 }

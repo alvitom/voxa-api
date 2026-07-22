@@ -1,9 +1,6 @@
 package com.voxa.api.controller;
 
-import com.voxa.api.model.request.LoginUserRequest;
-import com.voxa.api.model.request.RefreshTokenUserRequest;
-import com.voxa.api.model.request.RegisterUserRequest;
-import com.voxa.api.model.request.VerificationAccountUserRequest;
+import com.voxa.api.model.request.*;
 import com.voxa.api.model.response.AuthenticationResponse;
 import com.voxa.api.model.response.WebResponse;
 import com.voxa.api.service.AuthService;
@@ -120,6 +117,38 @@ public class AuthController {
         WebResponse<AuthenticationResponse> webResponse = WebResponse.<AuthenticationResponse>builder()
                 .success(true)
                 .message("Logout successfully")
+                .build();
+
+        return ResponseEntity.status(HttpStatus.OK).body(webResponse);
+    }
+
+    @PostMapping(
+            value = "/forgot-password",
+            consumes = MediaType.APPLICATION_JSON_VALUE,
+            produces = MediaType.APPLICATION_JSON_VALUE
+    )
+    public ResponseEntity<WebResponse<?>> forgotPassword(@Valid @RequestBody ForgotPasswordRequest request) throws MessagingException {
+        authService.forgotPassword(request.identifier());
+
+        WebResponse<AuthenticationResponse> webResponse = WebResponse.<AuthenticationResponse>builder()
+                .success(true)
+                .message("Reset password request successful. Kindly check your email to reset the password")
+                .build();
+
+        return ResponseEntity.status(HttpStatus.OK).body(webResponse);
+    }
+
+    @PostMapping(
+            value = "/reset-password",
+            consumes = MediaType.APPLICATION_JSON_VALUE,
+            produces = MediaType.APPLICATION_JSON_VALUE
+    )
+    public ResponseEntity<WebResponse<?>> resetPassword(@Valid @RequestBody ResetPasswordRequest request) {
+        authService.resetPassword(request.passwordResetToken());
+
+        WebResponse<AuthenticationResponse> webResponse = WebResponse.<AuthenticationResponse>builder()
+                .success(true)
+                .message("Reset password successfully. Please login with your new password")
                 .build();
 
         return ResponseEntity.status(HttpStatus.OK).body(webResponse);
