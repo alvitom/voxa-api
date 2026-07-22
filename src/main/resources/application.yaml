@@ -12,7 +12,10 @@ spring:
   application:
     security:
       jwt:
+        issuer: voxa-api
         secret-key: ${JWT_SECRET}
+      hash:
+        secret-key: ${HASH_SECRET}
     mail:
       from: ${MAIL_FROM}
     client-url: ${CLIENT_URL}

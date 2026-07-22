@@ -6,7 +6,7 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
 
-@Service
+@Service("sha256")
 public class Sha256Service implements HashService {
     @Override
     public String hash(String token) {

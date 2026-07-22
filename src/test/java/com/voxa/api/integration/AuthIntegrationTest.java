@@ -1,19 +1,25 @@
 package com.voxa.api.integration;
 
+import com.voxa.api.config.JwtProperties;
 import com.voxa.api.model.entity.User;
 import com.voxa.api.model.request.LoginUserRequest;
+import com.voxa.api.model.request.RefreshTokenUserRequest;
 import com.voxa.api.model.request.RegisterUserRequest;
+import com.voxa.api.model.request.VerificationAccountUserRequest;
 import com.voxa.api.model.response.AuthenticationResponse;
 import com.voxa.api.model.response.ErrorResponse;
 import com.voxa.api.model.response.WebResponse;
 import com.voxa.api.repository.UserRepository;
 import com.voxa.api.service.HashService;
+import com.voxa.api.service.JwtService;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -21,7 +27,9 @@ import org.springframework.test.web.servlet.MockMvc;
 import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.ObjectMapper;
 
+import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -41,12 +49,23 @@ public class AuthIntegrationTest {
     private PasswordEncoder passwordEncoder;
 
     @Autowired
-    private HashService hashService;
+    @Qualifier("hs256")
+    private HashService hs256Service;
+
+    @Autowired
+    @Qualifier("sha256")
+    private HashService sha256Service;
 
     private String basePath = "/v1/auth";
 
     @Autowired
     private ObjectMapper objectMapper;
+
+    @Autowired
+    private JwtService jwtService;
+
+    @Autowired
+    private JwtProperties jwtProperties;
 
     @BeforeEach
     void setUp() {
@@ -63,6 +82,37 @@ public class AuthIntegrationTest {
      * Register Test
      * @throws Exception
      */
+    @Test
+    void shouldReturnErrorBadRequestWhenRegisterUserRequestIsInvalid() throws Exception {
+        RegisterUserRequest request = new RegisterUserRequest(
+                "",
+                "",
+                "",
+                ""
+        );
+
+        mockMvc.perform(
+                post(basePath + "/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request))
+        ).andExpectAll(
+                status().isBadRequest(),
+                content().contentType(MediaType.APPLICATION_JSON),
+                result -> {
+                    String responseBody = result.getResponse().getContentAsString();
+
+                    assertEquals(HttpStatus.BAD_REQUEST.value(), result.getResponse().getStatus());
+
+                    ErrorResponse errorResponse = objectMapper.readValue(responseBody, new TypeReference<>() {
+                    });
+
+                    assertFalse(errorResponse.success());
+                    assertTrue(errorResponse.message().contains("Validation error"));
+                    assertEquals(6, errorResponse.errors().size());
+                }
+        );
+    }
+
     @Test
     void shouldReturnErrorConflictWhenEmailAlreadyExists() throws Exception {
         User user = User.builder()
@@ -140,37 +190,6 @@ public class AuthIntegrationTest {
     }
 
     @Test
-    void shouldReturnErrorBadRequestWhenRegisterUserRequestIsInvalid() throws Exception {
-        RegisterUserRequest request = new RegisterUserRequest(
-                "",
-                "",
-                "",
-                ""
-        );
-
-        mockMvc.perform(
-                post(basePath + "/register")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(request))
-        ).andExpectAll(
-                status().isBadRequest(),
-                content().contentType(MediaType.APPLICATION_JSON),
-                result -> {
-                    String responseBody = result.getResponse().getContentAsString();
-
-                    assertEquals(HttpStatus.BAD_REQUEST.value(), result.getResponse().getStatus());
-
-                    ErrorResponse errorResponse = objectMapper.readValue(responseBody, new TypeReference<>() {
-                    });
-
-                    assertFalse(errorResponse.success());
-                    assertTrue(errorResponse.message().contains("Validation error"));
-                    assertEquals(6, errorResponse.errors().size());
-                }
-        );
-    }
-
-    @Test
     void shouldReturnSuccessCreatedWhenRegisterIsSuccess() throws Exception {
         RegisterUserRequest request = new RegisterUserRequest(
                 "john@example.com",
@@ -207,6 +226,33 @@ public class AuthIntegrationTest {
      * @throws Exception
      */
     @Test
+    void shouldReturnErrorBadRequestWhenVerifyAccountTokenIsBlank() throws Exception {
+        VerificationAccountUserRequest request = new VerificationAccountUserRequest("");
+
+        mockMvc.perform(
+                post(basePath + "/verify-account")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request))
+        ).andExpectAll(
+                status().isBadRequest(),
+                content().contentType(MediaType.APPLICATION_JSON),
+                result -> {
+                    String response = result.getResponse().getContentAsString();
+
+                    assertEquals(HttpStatus.BAD_REQUEST.value(), result.getResponse().getStatus());
+
+                    ErrorResponse errorResponse = objectMapper.readValue(response, new TypeReference<>() {
+                    });
+
+                    assertFalse(errorResponse.success());
+                    assertEquals("Validation error", errorResponse.message());
+                    assertNotNull(errorResponse.errors());
+                    assertEquals(1, errorResponse.errors().size());
+                }
+        );
+    }
+
+    @Test
     void shouldReturnErrorForbiddenWhenVerifyAccountTokenIsInvalid() throws Exception {
         User user = User.builder()
                 .email("john@example.com")
@@ -216,17 +262,18 @@ public class AuthIntegrationTest {
                 .isAccountNonLocked(true)
                 .isCredentialsNonExpired(true)
                 .isEnabled(false)
-                .verificationToken(hashService.hash("token"))
+                .verificationToken(hs256Service.hash("token"))
                 .verificationTokenExpiredAt(LocalDateTime.now().plusMinutes(30))
                 .build();
 
         userRepository.save(user);
 
-        String requestParam = "invalid-token";
+        VerificationAccountUserRequest request = new VerificationAccountUserRequest("invalid-token");
 
         mockMvc.perform(
                 post(basePath + "/verify-account")
-                        .queryParam("token", requestParam)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request))
         ).andExpectAll(
                 status().isForbidden(),
                 content().contentType(MediaType.APPLICATION_JSON),
@@ -254,17 +301,18 @@ public class AuthIntegrationTest {
                 .isAccountNonLocked(true)
                 .isCredentialsNonExpired(true)
                 .isEnabled(false)
-                .verificationToken(hashService.hash("token"))
+                .verificationToken(hs256Service.hash("token"))
                 .verificationTokenExpiredAt(LocalDateTime.now().minusMinutes(30))
                 .build();
 
         userRepository.save(user);
 
-        String requestParam = "token";
+        VerificationAccountUserRequest request = new VerificationAccountUserRequest("token");
 
         mockMvc.perform(
                 post(basePath + "/verify-account")
-                        .queryParam("token", requestParam)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request))
         ).andExpectAll(
                 status().isForbidden(),
                 content().contentType(MediaType.APPLICATION_JSON),
@@ -292,17 +340,18 @@ public class AuthIntegrationTest {
                 .isAccountNonLocked(true)
                 .isCredentialsNonExpired(true)
                 .isEnabled(true)
-                .verificationToken(hashService.hash("token"))
+                .verificationToken(hs256Service.hash("token"))
                 .verificationTokenExpiredAt(LocalDateTime.now().plusMinutes(30))
                 .build();
 
         userRepository.save(user);
 
-        String requestParam = "token";
+        VerificationAccountUserRequest request = new VerificationAccountUserRequest("token");
 
         mockMvc.perform(
                 post(basePath + "/verify-account")
-                        .queryParam("token", requestParam)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request))
         ).andExpectAll(
                 status().isForbidden(),
                 content().contentType(MediaType.APPLICATION_JSON),
@@ -321,32 +370,6 @@ public class AuthIntegrationTest {
     }
 
     @Test
-    void shouldReturnErrorBadRequestWhenVerifyAccountTokenIsBlank() throws Exception {
-        String requestParam = "";
-
-        mockMvc.perform(
-                post(basePath + "/verify-account")
-                        .queryParam("token", requestParam)
-        ).andExpectAll(
-                status().isBadRequest(),
-                content().contentType(MediaType.APPLICATION_JSON),
-                result -> {
-                    String response = result.getResponse().getContentAsString();
-
-                    assertEquals(HttpStatus.BAD_REQUEST.value(), result.getResponse().getStatus());
-
-                    ErrorResponse errorResponse = objectMapper.readValue(response, new TypeReference<>() {
-                    });
-
-                    assertFalse(errorResponse.success());
-                    assertEquals("Validation error", errorResponse.message());
-                    assertNotNull(errorResponse.errors());
-                    assertEquals(1, errorResponse.errors().size());
-                }
-        );
-    }
-
-    @Test
     void shouldReturnSuccessOkWhenVerifyAccountIsSuccess() throws Exception {
         User user = User.builder()
                 .email("john@example.com")
@@ -356,17 +379,18 @@ public class AuthIntegrationTest {
                 .isAccountNonLocked(true)
                 .isCredentialsNonExpired(true)
                 .isEnabled(false)
-                .verificationToken(hashService.hash("token"))
+                .verificationToken(hs256Service.hash("token"))
                 .verificationTokenExpiredAt(LocalDateTime.now().plusMinutes(30))
                 .build();
 
         userRepository.save(user);
 
-        String requestParam = "token";
+        VerificationAccountUserRequest request = new VerificationAccountUserRequest("token");
 
         mockMvc.perform(
                 post(basePath + "/verify-account")
-                        .queryParam("token", requestParam)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request))
         ).andExpectAll(
                 status().isOk(),
                 content().contentType(MediaType.APPLICATION_JSON),
@@ -380,7 +404,8 @@ public class AuthIntegrationTest {
 
                     assertTrue(webResponse.success());
                     assertEquals("Account verified successfully", webResponse.message());
-                    assertNotNull(webResponse.data().token());
+                    assertNotNull(webResponse.data().accessToken());
+                    assertNotNull(webResponse.data().refreshToken());
                     assertEquals("john@example.com", webResponse.data().user().email());
                     assertEquals("example", webResponse.data().user().username());
                 }
@@ -392,6 +417,33 @@ public class AuthIntegrationTest {
      * Login Test
      * @throws Exception
      */
+    @Test
+    void shouldReturnErrorBadRequestWhenLoginUserRequestIsInvalid() throws Exception {
+        LoginUserRequest request = new LoginUserRequest("", "");
+
+        mockMvc.perform(
+                post(basePath + "/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request))
+        ).andExpectAll(
+                status().isBadRequest(),
+                content().contentType(MediaType.APPLICATION_JSON),
+                result -> {
+                    assertEquals(HttpStatus.BAD_REQUEST.value(), result.getResponse().getStatus());
+
+                    String responseBody = result.getResponse().getContentAsString();
+
+                    ErrorResponse errorResponse = objectMapper.readValue(responseBody, new TypeReference<>() {
+                    });
+
+                    assertFalse(errorResponse.success());
+                    assertEquals("Validation error", errorResponse.message());
+                    assertNotNull(errorResponse.errors());
+                    assertEquals(2, errorResponse.errors().size());
+                }
+        );
+    }
+
     @Test
     void shouldReturnErrorUnauthorizedWhenUserNotFound() throws Exception {
         User user = User.builder()
@@ -541,33 +593,6 @@ public class AuthIntegrationTest {
     }
 
     @Test
-    void shouldReturnErrorBadRequestWhenLoginUserRequestIsInvalid() throws Exception {
-        LoginUserRequest request = new LoginUserRequest("", "");
-
-        mockMvc.perform(
-                post(basePath + "/login")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(request))
-        ).andExpectAll(
-                status().isBadRequest(),
-                content().contentType(MediaType.APPLICATION_JSON),
-                result -> {
-                    assertEquals(HttpStatus.BAD_REQUEST.value(), result.getResponse().getStatus());
-
-                    String responseBody = result.getResponse().getContentAsString();
-
-                    ErrorResponse errorResponse = objectMapper.readValue(responseBody, new TypeReference<>() {
-                    });
-
-                    assertFalse(errorResponse.success());
-                    assertEquals("Validation error", errorResponse.message());
-                    assertNotNull(errorResponse.errors());
-                    assertEquals(2, errorResponse.errors().size());
-                }
-        );
-    }
-
-    @Test
     void shouldReturnSuccessOkWhenLoginIsSuccess() throws Exception {
         User user = User.builder()
                 .email("john@example.com")
@@ -603,9 +628,449 @@ public class AuthIntegrationTest {
 
                     AuthenticationResponse authenticationResponse = webResponse.data();
 
-                    assertNotNull(authenticationResponse.token());
+                    assertNotNull(authenticationResponse.accessToken());
+                    assertNotNull(authenticationResponse.refreshToken());
                     assertEquals("john@example.com", authenticationResponse.user().email());
                     assertEquals("example", authenticationResponse.user().username());
+                }
+        );
+    }
+
+
+    /**
+     * Refresh Token Test
+     */
+    @Test
+    void shouldReturnErrorBadRequestWhenRefreshTokenIsBlank() throws Exception {
+        RefreshTokenUserRequest request = new RefreshTokenUserRequest("");
+
+        mockMvc.perform(
+                post(basePath + "/refresh")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request))
+        ).andExpectAll(
+                status().isBadRequest(),
+                content().contentType(MediaType.APPLICATION_JSON),
+                result -> {
+                    String responseBody = result.getResponse().getContentAsString();
+
+                    ErrorResponse errorResponse = objectMapper.readValue(responseBody, new TypeReference<>() {
+                    });
+
+                    assertFalse(errorResponse.success());
+                    assertEquals("Validation error", errorResponse.message());
+                    assertNotNull(errorResponse.errors());
+                    assertEquals(1, errorResponse.errors().size());
+                }
+        );
+    }
+
+    // TODO: Implement JWT Service Test to separate logic test
+
+//    @Test
+//    void shouldReturnErrorUnauthorizedWhenRefreshTokenWasExpired() throws Exception {
+//        User user = User.builder()
+//                .build();
+//
+//        Duration refreshTokenExpiration = Duration.ofDays(1).minusDays(2);
+//
+//        String refreshToken = jwtService.generate(user, "refresh-token", refreshTokenExpiration);
+//
+//        RefreshTokenUserRequest request = new RefreshTokenUserRequest(refreshToken);
+//
+//        mockMvc.perform(
+//                post(basePath + "/refresh")
+//                        .contentType(MediaType.APPLICATION_JSON)
+//                        .content(objectMapper.writeValueAsString(request))
+//        ).andExpectAll(
+//                status().isUnauthorized(),
+//                content().contentType(MediaType.APPLICATION_JSON),
+//                result -> {
+//                    String responseBody = result.getResponse().getContentAsString();
+//
+//                    ErrorResponse errorResponse = objectMapper.readValue(responseBody, new TypeReference<>() {
+//                    });
+//
+//                    assertFalse(errorResponse.success());
+//                    assertTrue(errorResponse.message().contains("JWT expired"));
+//                }
+//        );
+//    }
+
+    @Test
+    void shouldReturnErrorForbiddenWhenTokenTypeWasIsInvalid() throws Exception {
+        User user = User.builder()
+                .build();
+
+        Duration refreshTokenExpiration = jwtProperties.refreshTokenExpiration();
+
+        String refreshToken = jwtService.generate(user, "access-token", refreshTokenExpiration);
+
+        RefreshTokenUserRequest request = new RefreshTokenUserRequest(refreshToken);
+
+        mockMvc.perform(
+                post(basePath + "/refresh")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request))
+        ).andExpectAll(
+                status().isForbidden(),
+                content().contentType(MediaType.APPLICATION_JSON),
+                result -> {
+                    String responseBody = result.getResponse().getContentAsString();
+
+                    ErrorResponse errorResponse = objectMapper.readValue(responseBody, new TypeReference<>() {
+                    });
+
+                    assertFalse(errorResponse.success());
+                    assertEquals("Token type is invalid", errorResponse.message());
+                }
+        );
+    }
+
+    @Test
+    void shouldReturnErrorNotFoundWhenRefreshTokenNotFound() throws Exception {
+        User user = User.builder()
+                .id(UUID.randomUUID().toString())
+                .build();
+
+        Duration refreshTokenExpiration = jwtProperties.refreshTokenExpiration();
+
+        String refreshToken = jwtService.generate(user, "refresh-token", refreshTokenExpiration);
+
+        RefreshTokenUserRequest request = new RefreshTokenUserRequest(refreshToken);
+
+        mockMvc.perform(
+                post(basePath + "/refresh")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request))
+        ).andExpectAll(
+                status().isNotFound(),
+                content().contentType(MediaType.APPLICATION_JSON),
+                result -> {
+                    String responseBody = result.getResponse().getContentAsString();
+
+                    ErrorResponse errorResponse = objectMapper.readValue(responseBody, new TypeReference<>() {
+                    });
+
+                    assertFalse(errorResponse.success());
+                    assertEquals("Refresh token not found", errorResponse.message());
+                }
+        );
+    }
+
+    @Test
+    void shouldReturnErrorForbiddenWhenRefreshTokenIsInvalid() throws Exception {
+        User user = User.builder()
+                .email("john@example.com")
+                .username("example")
+                .password(passwordEncoder.encode("password"))
+                .refreshToken("refresh-token")
+                .build();
+
+        User savedUser = userRepository.save(user);
+
+        Duration refreshTokenExpiration = jwtProperties.refreshTokenExpiration();
+
+        String refreshToken = jwtService.generate(savedUser, "refresh-token", refreshTokenExpiration);
+
+        RefreshTokenUserRequest request = new RefreshTokenUserRequest(refreshToken);
+
+        mockMvc.perform(
+                post(basePath + "/refresh")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request))
+        ).andExpectAll(
+                status().isForbidden(),
+                content().contentType(MediaType.APPLICATION_JSON),
+                result -> {
+                    String responseBody = result.getResponse().getContentAsString();
+
+                    ErrorResponse errorResponse = objectMapper.readValue(responseBody, new TypeReference<>() {
+                    });
+
+                    assertFalse(errorResponse.success());
+                    assertEquals("Refresh token is invalid", errorResponse.message());
+                }
+        );
+    }
+
+    @Test
+    void shouldReturnSuccessOkWhenRefreshIsSuccess() throws Exception {
+        User user = User.builder()
+                .email("john@example.com")
+                .username("example")
+                .password(passwordEncoder.encode("password"))
+                .build();
+
+        userRepository.save(user);
+
+        Duration refreshTokenExpiration = jwtProperties.refreshTokenExpiration();
+
+        String refreshToken = jwtService.generate(user, "refresh-token", refreshTokenExpiration);
+
+        String hashedRefreshToken = sha256Service.hash(refreshToken);
+
+        user.setRefreshToken(hashedRefreshToken);
+        user.setRefreshTokenExpiredAt(LocalDateTime.now().plus(refreshTokenExpiration));
+
+        userRepository.save(user);
+
+        RefreshTokenUserRequest request = new RefreshTokenUserRequest(refreshToken);
+
+        mockMvc.perform(
+                post(basePath + "/refresh")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request))
+        ).andExpectAll(
+                status().isOk(),
+                content().contentType(MediaType.APPLICATION_JSON),
+                result -> {
+                    String responseBody = result.getResponse().getContentAsString();
+
+                    WebResponse<AuthenticationResponse> webResponse = objectMapper.readValue(responseBody, new TypeReference<>() {
+                    });
+
+                    assertTrue(webResponse.success());
+                    assertEquals("Refresh token successfully", webResponse.message());
+                }
+        );
+    }
+
+
+    /**
+     * Logout Test
+     */
+    @Test
+    void shouldReturnErrorUnauthorizedWhenAccessTokenNotPresent() throws Exception {
+        RefreshTokenUserRequest request = new RefreshTokenUserRequest("");
+
+        mockMvc.perform(
+                post(basePath + "/logout")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request))
+        ).andExpectAll(
+                status().isUnauthorized(),
+                content().contentType(MediaType.APPLICATION_JSON),
+                result -> {
+                    String responseBody = result.getResponse().getContentAsString();
+
+                    ErrorResponse errorResponse = objectMapper.readValue(responseBody, new TypeReference<>() {
+                    });
+
+                    assertFalse(errorResponse.success());
+                    assertTrue(errorResponse.message().contains("Full authentication is required"));
+                }
+        );
+    }
+
+    @Test
+    void shouldReturnErrorBadRequestWhenLogoutRefreshTokenIsBlank() throws Exception {
+        User user = User.builder()
+                .email("john@example.com")
+                .username("example")
+                .password(passwordEncoder.encode("password"))
+                .build();
+
+        User savedUser = userRepository.save(user);
+
+        Duration accessTokenExpiration = jwtProperties.expiration();
+
+        String accessToken = jwtService.generate(savedUser, "access-token", accessTokenExpiration);
+
+        RefreshTokenUserRequest request = new RefreshTokenUserRequest("");
+
+        mockMvc.perform(
+                post(basePath + "/logout")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header(HttpHeaders.AUTHORIZATION, String.format("Bearer %s", accessToken))
+                        .content(objectMapper.writeValueAsString(request))
+        ).andExpectAll(
+                status().isBadRequest(),
+                content().contentType(MediaType.APPLICATION_JSON),
+                result -> {
+                    String responseBody = result.getResponse().getContentAsString();
+
+                    ErrorResponse errorResponse = objectMapper.readValue(responseBody, new TypeReference<>() {
+                    });
+
+                    assertFalse(errorResponse.success());
+                    assertEquals("Validation error", errorResponse.message());
+                    assertNotNull(errorResponse.errors());
+                    assertEquals(1, errorResponse.errors().size());
+                }
+        );
+    }
+
+    @Test
+    void shouldReturnErrorForbiddenWhenLogoutRefreshTokenTypeIsInvalid() throws Exception {
+        User user = User.builder()
+                .email("john@example.com")
+                .username("example")
+                .password(passwordEncoder.encode("password"))
+                .build();
+
+        User savedUser = userRepository.save(user);
+
+        Duration accessTokenExpiration = jwtProperties.expiration();
+        Duration refreshTokenExpiration = jwtProperties.refreshTokenExpiration();
+
+        String accessToken = jwtService.generate(savedUser, "access-token", accessTokenExpiration);
+        String refreshToken = jwtService.generate(savedUser, "invalid-token", refreshTokenExpiration);
+
+        savedUser.setRefreshToken(sha256Service.hash(refreshToken));
+        savedUser.setRefreshTokenExpiredAt(LocalDateTime.now().plus(refreshTokenExpiration));
+
+        userRepository.save(savedUser);
+
+        RefreshTokenUserRequest request = new RefreshTokenUserRequest(refreshToken);
+
+        mockMvc.perform(
+                post(basePath + "/logout")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header(HttpHeaders.AUTHORIZATION, String.format("Bearer %s", accessToken))
+                        .content(objectMapper.writeValueAsString(request))
+        ).andExpectAll(
+                status().isForbidden(),
+                content().contentType(MediaType.APPLICATION_JSON),
+                result -> {
+                    String responseBody = result.getResponse().getContentAsString();
+
+                    ErrorResponse errorResponse = objectMapper.readValue(responseBody, new TypeReference<>() {
+                    });
+
+                    assertFalse(errorResponse.success());
+                    assertEquals("Token type is invalid", errorResponse.message());
+                }
+        );
+    }
+
+    @Test
+    void shouldReturnErrorNotFoundWhenLogoutRefreshTokenNotFound() throws Exception {
+        User user = User.builder()
+                .email("john@example.com")
+                .username("example")
+                .password(passwordEncoder.encode("password"))
+                .build();
+
+        User savedUser = userRepository.save(user);
+
+        Duration accessTokenExpiration = jwtProperties.expiration();
+        Duration refreshTokenExpiration = jwtProperties.refreshTokenExpiration();
+
+        String accessToken = jwtService.generate(savedUser, "access-token", accessTokenExpiration);
+        String refreshToken = jwtService.generate(savedUser, "refresh-token", refreshTokenExpiration);
+
+        savedUser.setRefreshToken(sha256Service.hash(refreshToken));
+        savedUser.setRefreshTokenExpiredAt(LocalDateTime.now().plus(refreshTokenExpiration));
+
+        userRepository.save(savedUser);
+
+        User user2 = User.builder()
+                .id(UUID.randomUUID().toString())
+                .build();
+
+        String notFoundToken = jwtService.generate(user2, "refresh-token", refreshTokenExpiration);
+
+        RefreshTokenUserRequest request = new RefreshTokenUserRequest(notFoundToken);
+
+        mockMvc.perform(
+                post(basePath + "/logout")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header(HttpHeaders.AUTHORIZATION, String.format("Bearer %s", accessToken))
+                        .content(objectMapper.writeValueAsString(request))
+        ).andExpectAll(
+                status().isNotFound(),
+                content().contentType(MediaType.APPLICATION_JSON),
+                result -> {
+                    String responseBody = result.getResponse().getContentAsString();
+
+                    ErrorResponse errorResponse = objectMapper.readValue(responseBody, new TypeReference<>() {
+                    });
+
+                    assertFalse(errorResponse.success());
+                    assertEquals("Refresh token not found", errorResponse.message());
+                }
+        );
+    }
+
+    @Test
+    void shouldReturnErrorForbiddenWhenLogoutRefreshTokenIsInvalid() throws Exception {
+        User user = User.builder()
+                .email("john@example.com")
+                .username("example")
+                .password(passwordEncoder.encode("password"))
+                .refreshToken("refresh-token")
+                .build();
+
+        User savedUser = userRepository.save(user);
+
+        Duration accessTokenExpiration = jwtProperties.expiration();
+        Duration refreshTokenExpiration = jwtProperties.refreshTokenExpiration();
+
+        String accessToken = jwtService.generate(savedUser, "access-token", accessTokenExpiration);
+        String refreshToken = jwtService.generate(savedUser, "refresh-token", refreshTokenExpiration);
+
+        RefreshTokenUserRequest request = new RefreshTokenUserRequest(refreshToken);
+
+        mockMvc.perform(
+                post(basePath + "/logout")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header(HttpHeaders.AUTHORIZATION, String.format("Bearer %s", accessToken))
+                        .content(objectMapper.writeValueAsString(request))
+        ).andExpectAll(
+                status().isForbidden(),
+                content().contentType(MediaType.APPLICATION_JSON),
+                result -> {
+                    String responseBody = result.getResponse().getContentAsString();
+
+                    ErrorResponse errorResponse = objectMapper.readValue(responseBody, new TypeReference<>() {
+                    });
+
+                    assertFalse(errorResponse.success());
+                    assertEquals("Refresh token is invalid", errorResponse.message());
+                }
+        );
+    }
+
+    @Test
+    void shouldReturnSuccessOkWhenLogoutIsSuccess() throws Exception {
+        User user = User.builder()
+                .email("john@example.com")
+                .username("example")
+                .password(passwordEncoder.encode("password"))
+                .build();
+
+        User savedUser = userRepository.save(user);
+
+        Duration accessTokenExpiration = jwtProperties.expiration();
+        Duration refreshTokenExpiration = jwtProperties.refreshTokenExpiration();
+
+        String accessToken = jwtService.generate(savedUser, "access-token", accessTokenExpiration);
+        String refreshToken = jwtService.generate(savedUser, "refresh-token", refreshTokenExpiration);
+
+        savedUser.setRefreshToken(sha256Service.hash(refreshToken));
+        savedUser.setRefreshTokenExpiredAt(LocalDateTime.now().plus(refreshTokenExpiration));
+
+        userRepository.save(savedUser);
+
+        RefreshTokenUserRequest request = new RefreshTokenUserRequest(refreshToken);
+
+        mockMvc.perform(
+                post(basePath + "/logout")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header(HttpHeaders.AUTHORIZATION, String.format("Bearer %s", accessToken))
+                        .content(objectMapper.writeValueAsString(request))
+        ).andExpectAll(
+                status().isOk(),
+                content().contentType(MediaType.APPLICATION_JSON),
+                result -> {
+                    String responseBody = result.getResponse().getContentAsString();
+
+                    WebResponse<?> webResponse = objectMapper.readValue(responseBody, new TypeReference<>() {
+                    });
+
+                    assertTrue(webResponse.success());
+                    assertEquals("Logout successfully", webResponse.message());
                 }
         );
     }

@@ -1,7 +1,9 @@
 package com.voxa.api.controller;
 
 import com.voxa.api.model.request.LoginUserRequest;
+import com.voxa.api.model.request.RefreshTokenUserRequest;
 import com.voxa.api.model.request.RegisterUserRequest;
+import com.voxa.api.model.request.VerificationAccountUserRequest;
 import com.voxa.api.model.response.ErrorResponse;
 import com.voxa.api.model.response.AuthenticationResponse;
 import com.voxa.api.model.response.UserResponse;
@@ -12,7 +14,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.http.MediaType;
-import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import tools.jackson.core.type.TypeReference;
@@ -28,9 +29,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 public class AuthControllerTest {
     @Autowired
     private MockMvc mockMvc;
-
-    @MockitoBean
-    private UserDetailsService userDetailsService;
 
     @MockitoBean
     private AuthService authService;
@@ -102,11 +100,12 @@ public class AuthControllerTest {
      */
     @Test
     void shouldThrowConstraintViolationExceptionWhenVerifyAccountTokenIsBlank() throws Exception {
-        String token = "";
+        VerificationAccountUserRequest request = new VerificationAccountUserRequest("");
 
         mockMvc.perform(
                 post(basePath + "/verify-account")
-                        .queryParam("token", token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request))
         ).andExpectAll(
                 status().isBadRequest(),
                 content().contentType(MediaType.APPLICATION_JSON),
@@ -121,12 +120,12 @@ public class AuthControllerTest {
                 }
         );
 
-        verify(authService, never()).verifyAccount(token);
+        verify(authService, never()).verifyAccount(request.verificationToken());
     }
 
     @Test
     void shouldReturnWebResponseWhenVerifyAccountIsSuccess() throws Exception {
-        String token = "token";
+        VerificationAccountUserRequest request = new VerificationAccountUserRequest("verification-token");
 
         UserResponse userResponse = UserResponse.builder()
                 .email("john@example.com")
@@ -134,15 +133,17 @@ public class AuthControllerTest {
                 .build();
 
         AuthenticationResponse authenticationResponse = AuthenticationResponse.builder()
-                .token("token")
+                .accessToken("access-token")
+                .refreshToken("refresh-token")
                 .user(userResponse)
                 .build();
 
-        when(authService.verifyAccount(token)).thenReturn(authenticationResponse);
+        when(authService.verifyAccount(request.verificationToken())).thenReturn(authenticationResponse);
 
         mockMvc.perform(
                 post(basePath + "/verify-account")
-                        .queryParam("token", token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request))
         ).andExpectAll(
                 status().isOk(),
                 content().contentType(MediaType.APPLICATION_JSON),
@@ -154,14 +155,21 @@ public class AuthControllerTest {
 
                     assertTrue(webResponse.success());
                     assertEquals("Account verified successfully", webResponse.message());
-                    assertEquals("token", webResponse.data().token());
+                    assertEquals("access-token", webResponse.data().accessToken());
+                    assertEquals("refresh-token", webResponse.data().refreshToken());
                     assertEquals("john@example.com", webResponse.data().user().email());
                     assertEquals("example", webResponse.data().user().username());
                 }
         );
 
-        verify(authService).verifyAccount(token);
+        verify(authService).verifyAccount(request.verificationToken());
     }
+
+
+    /**
+     * Resend Account Verification Test
+     */
+
 
     /**
      * Login Test
@@ -193,7 +201,8 @@ public class AuthControllerTest {
         LoginUserRequest request = new LoginUserRequest("example", "password");
 
         AuthenticationResponse authenticationResponse = AuthenticationResponse.builder()
-                .token("token")
+                .accessToken("access-token")
+                .refreshToken("refresh-token")
                 .build();
 
         when(authService.login(request)).thenReturn(authenticationResponse);
@@ -211,11 +220,135 @@ public class AuthControllerTest {
             assertTrue(webResponse.success());
             assertEquals("User login successfully", webResponse.message());
 
-            String token = webResponse.data().token();
+            String accessToken = webResponse.data().accessToken();
+            String refreshToken = webResponse.data().refreshToken();
 
-            assertEquals("token", token);
+            assertEquals("access-token", accessToken);
+            assertEquals("refresh-token", refreshToken);
         });
 
         verify(authService).login(request);
+    }
+
+
+    /**
+     * Refresh Token Test
+     */
+    @Test
+    void shouldThrowConstraintViolationExceptionWhenRefreshTokenIsBlank() throws Exception {
+        RefreshTokenUserRequest request = new RefreshTokenUserRequest("");
+
+        mockMvc.perform(
+                post(basePath + "/refresh")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request))
+        ).andExpectAll(
+                status().isBadRequest(),
+                content().contentType(MediaType.APPLICATION_JSON),
+                result -> {
+                    String response = result.getResponse().getContentAsString();
+
+                    ErrorResponse errorResponse = objectMapper.readValue(response, new TypeReference<>() {
+                    });
+
+                    assertFalse(errorResponse.success());
+                    assertEquals("Validation error", errorResponse.message());
+                }
+        );
+
+        verify(authService, never()).refresh(request.refreshToken());
+    }
+
+    @Test
+    void shouldReturnWebResponseWhenRefreshIsSuccess() throws Exception {
+        RefreshTokenUserRequest request = new RefreshTokenUserRequest("refresh-token");
+
+        AuthenticationResponse authenticationResponse = AuthenticationResponse.builder()
+                .accessToken("access-token")
+                .refreshToken("refresh-token")
+                .build();
+
+        when(authService.refresh(request.refreshToken())).thenReturn(authenticationResponse);
+
+        mockMvc.perform(
+                post(basePath + "/refresh")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request))
+        ).andExpectAll(
+                status().isOk(),
+                content().contentType(MediaType.APPLICATION_JSON),
+                result -> {
+                    String responseBody = result.getResponse().getContentAsString();
+
+                    WebResponse<AuthenticationResponse> webResponse = objectMapper.readValue(responseBody, new TypeReference<>() {
+                    });
+
+                    assertTrue(webResponse.success());
+                    assertEquals("Refresh token successfully", webResponse.message());
+
+                    String newAccesstoken = webResponse.data().accessToken();
+                    String newRefreshToken = webResponse.data().refreshToken();
+
+                    assertEquals("access-token", newAccesstoken);
+                    assertEquals("refresh-token", newRefreshToken);
+                }
+        );
+
+        verify(authService).refresh(request.refreshToken());
+    }
+
+
+    /**
+     * Logout Test
+     * @throws Exception
+     */
+    @Test
+    void shouldThrowConstraintViolationExceptionWhenLogoutRefreshTokenIsBlank() throws Exception {
+        RefreshTokenUserRequest request = new RefreshTokenUserRequest("");
+
+        mockMvc.perform(
+                post(basePath + "/logout")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request))
+        ).andExpectAll(
+                status().isBadRequest(),
+                content().contentType(MediaType.APPLICATION_JSON),
+                result -> {
+                    String response = result.getResponse().getContentAsString();
+
+                    ErrorResponse errorResponse = objectMapper.readValue(response, new TypeReference<>() {
+                    });
+
+                    assertFalse(errorResponse.success());
+                    assertEquals("Validation error", errorResponse.message());
+                }
+        );
+
+        verify(authService, never()).logout(request.refreshToken());
+    }
+
+    @Test
+    void shouldReturnWebResponseWhenLogoutIsSuccess() throws Exception {
+        RefreshTokenUserRequest request = new RefreshTokenUserRequest("refresh-token");
+
+        mockMvc.perform(
+                post(basePath + "/logout")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request))
+        ).andExpectAll(
+                status().isOk(),
+                content().contentType(MediaType.APPLICATION_JSON),
+                result -> {
+                    String responseBody = result.getResponse().getContentAsString();
+
+                    WebResponse<AuthenticationResponse> webResponse = objectMapper.readValue(responseBody, new TypeReference<>() {
+                    });
+
+                    assertTrue(webResponse.success());
+                    assertEquals("Logout successfully", webResponse.message());
+                }
+        );
+
+        verify(authService).logout(request.refreshToken());
     }
 }
