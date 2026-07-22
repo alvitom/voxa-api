@@ -1,5 +1,6 @@
 package com.voxa.api.service;
 
+import com.voxa.api.config.JwtProperties;
 import com.voxa.api.model.entity.User;
 import com.voxa.api.model.request.LoginUserRequest;
 import com.voxa.api.model.request.RegisterUserRequest;
@@ -24,6 +25,7 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.Optional;
 
@@ -31,9 +33,6 @@ import java.util.Optional;
 public class AuthServiceTest {
     @Mock
     private AuthenticationManager authenticationManager;
-
-    @Mock
-    private Authentication authentication;
 
     @Mock
     private UserRepository userRepository;
@@ -52,6 +51,9 @@ public class AuthServiceTest {
 
     @Mock
     private HashService hashService;
+
+    @Mock
+    private JwtProperties jwtProperties;
 
     @InjectMocks
     private AuthService authService;
@@ -196,7 +198,10 @@ public class AuthServiceTest {
 
         verifyNoMoreInteractions(userRepository);
 
-        verifyNoInteractions(jwtService);
+        verifyNoInteractions(
+                jwtService,
+                jwtProperties
+        );
     }
 
     @Test
@@ -223,7 +228,10 @@ public class AuthServiceTest {
 
         verifyNoMoreInteractions(userRepository);
 
-        verifyNoInteractions(jwtService);
+        verifyNoInteractions(
+                jwtService,
+                jwtProperties
+        );
     }
 
     @Test
@@ -251,7 +259,10 @@ public class AuthServiceTest {
 
         verifyNoMoreInteractions(userRepository);
 
-        verifyNoInteractions(jwtService);
+        verifyNoInteractions(
+                jwtService,
+                jwtProperties
+        );
     }
 
     @Test
@@ -266,13 +277,23 @@ public class AuthServiceTest {
                 .isEnabled(false)
                 .build();
 
+        String refreshToken = "refresh-token";
+
+        Duration jwtExpiration = Duration.ofMinutes(5);
+        Duration jwtRefreshTokenExpiration = Duration.ofDays(1);
+
         when(hashService.hash(verificationToken)).thenReturn(hashedVerificationToken);
         when(userRepository.findByVerificationToken(hashedVerificationToken)).thenReturn(Optional.of(user));
-        when(jwtService.generate(user)).thenReturn("token");
+        when(jwtProperties.expiration()).thenReturn(jwtExpiration);
+        when(jwtProperties.refreshTokenExpiration()).thenReturn(jwtRefreshTokenExpiration);
+        when(jwtService.generate(user, "access-token", jwtExpiration)).thenReturn("token");
+        when(jwtService.generate(user, "refresh-token", jwtRefreshTokenExpiration)).thenReturn(refreshToken);
+        when(hashService.hash(refreshToken)).thenReturn("hashed-refresh-token");
 
         AuthenticationResponse authenticationResponse = authService.verifyAccount(verificationToken);
 
-        assertNotNull(authenticationResponse.token());
+        assertNotNull(authenticationResponse.accessToken());
+        assertNotNull(authenticationResponse.refreshToken());
         assertEquals(user.getEmail(), authenticationResponse.user().email());
         assertEquals(user.getUsername(), authenticationResponse.user().username());
         assertNull(authenticationResponse.user().name());
@@ -280,12 +301,103 @@ public class AuthServiceTest {
         assertTrue(user.isEnabled());
         assertNull(user.getVerificationToken());
         assertNull(user.getVerificationTokenExpiredAt());
+        assertNotNull(user.getRefreshToken());
+        assertNotNull(user.getRefreshTokenExpiredAt());
 
         verify(hashService).hash(verificationToken);
         verify(userRepository).findByVerificationToken(hashedVerificationToken);
+        verify(jwtProperties).expiration();
+        verify(jwtProperties).refreshTokenExpiration();
+        verify(jwtService, times(2)).generate(any(User.class), anyString(), any(Duration.class));
         verify(userRepository).save(user);
-        verify(jwtService).generate(user);
     }
+
+
+    /**
+     * Resend Account Verification Test
+     */
+    @Test
+    void shouldThrowResponseStatusExceptionWhenResendAccountVerificationUserNotFound() {
+        String identifier = "example";
+
+        when(userRepository.findByEmailOrUsername(identifier, identifier))
+                .thenReturn(Optional.empty());
+
+        ResponseStatusException exception = assertThrows(ResponseStatusException.class,
+                () -> authService.resendAccountVerification(identifier));
+
+        assertEquals(HttpStatus.NOT_FOUND, exception.getStatusCode());
+        assertEquals("User not found", exception.getReason());
+
+        verify(userRepository).findByEmailOrUsername(identifier, identifier);
+
+        verifyNoInteractions(
+                tokenGenerator,
+                hashService,
+                mailService
+        );
+
+        verifyNoMoreInteractions(
+                userRepository
+        );
+    }
+
+    @Test
+    void shouldThrowResponseStatusExceptionWhenResendAccountVerificationUserAlreadyVerified() {
+        String identifier = "example";
+
+        User user = User.builder()
+                .isEnabled(true)
+                .build();
+
+        when(userRepository.findByEmailOrUsername(identifier, identifier))
+                .thenReturn(Optional.of(user));
+
+        ResponseStatusException exception = assertThrows(ResponseStatusException.class,
+                () -> authService.resendAccountVerification(identifier));
+
+        assertEquals(HttpStatus.FORBIDDEN, exception.getStatusCode());
+        assertEquals("User already verified", exception.getReason());
+
+        verify(userRepository).findByEmailOrUsername(identifier, identifier);
+
+        verifyNoInteractions(
+                tokenGenerator,
+                hashService,
+                mailService
+        );
+
+        verifyNoMoreInteractions(
+                userRepository
+        );
+    }
+
+    @Test
+    void shouldReturnVoidWhenResendAccountVerificationIsSuccess() throws MessagingException {
+        String identifier = "example";
+
+        User user = User.builder()
+                .email("john@example.com")
+                .username("example")
+                .isEnabled(false)
+                .build();
+
+        String newVerificationToken = "new-verification-token";
+
+        when(userRepository.findByEmailOrUsername(identifier, identifier))
+                .thenReturn(Optional.of(user));
+
+        when(tokenGenerator.generate(anyInt())).thenReturn(newVerificationToken);
+
+        authService.resendAccountVerification(identifier);
+
+        verify(userRepository).findByEmailOrUsername(identifier, identifier);
+        verify(tokenGenerator).generate(anyInt());
+        verify(hashService).hash(newVerificationToken);
+        verify(userRepository).save(user);
+        verify(mailService).sendAccountVerification(anyString(), anyString(), anyString());
+    }
+
 
     /**
      * Login Test
@@ -303,8 +415,12 @@ public class AuthServiceTest {
         assertEquals("Invalid credentials", exception.getMessage());
 
         verify(authenticationManager).authenticate(any(UsernamePasswordAuthenticationToken.class));
-        verify(authentication, never()).getPrincipal();
-        verify(jwtService, never()).generate(any(User.class));
+
+        verifyNoInteractions(jwtProperties);
+
+        verify(jwtService, never()).generate(any(User.class), any(Duration.class));
+        verify(hashService, never()).hash(anyString());
+        verify(userRepository, never()).save(any(User.class));
     }
 
     @Test
@@ -320,8 +436,12 @@ public class AuthServiceTest {
         assertEquals("User was disabled", exception.getMessage());
 
         verify(authenticationManager).authenticate(any(UsernamePasswordAuthenticationToken.class));
-        verify(authentication, never()).getPrincipal();
-        verify(jwtService, never()).generate(any(User.class));
+
+        verifyNoInteractions(jwtProperties);
+
+        verify(jwtService, never()).generate(any(User.class), any(Duration.class));
+        verify(hashService, never()).hash(anyString());
+        verify(userRepository, never()).save(any(User.class));
     }
 
     @Test
@@ -337,8 +457,12 @@ public class AuthServiceTest {
         assertEquals("User account is locked", exception.getMessage());
 
         verify(authenticationManager).authenticate(any(UsernamePasswordAuthenticationToken.class));
-        verify(authentication, never()).getPrincipal();
-        verify(jwtService, never()).generate(any(User.class));
+
+        verifyNoInteractions(jwtProperties);
+
+        verify(jwtService, never()).generate(any(User.class), any(Duration.class));
+        verify(hashService, never()).hash(anyString());
+        verify(userRepository, never()).save(any(User.class));
     }
 
     @Test
@@ -354,8 +478,12 @@ public class AuthServiceTest {
         assertEquals("Invalid credentials", exception.getMessage());
 
         verify(authenticationManager).authenticate(any(UsernamePasswordAuthenticationToken.class));
-        verify(authentication, never()).getPrincipal();
-        verify(jwtService, never()).generate(any(User.class));
+
+        verifyNoInteractions(jwtProperties);
+
+        verify(jwtService, never()).generate(any(User.class), any(Duration.class));
+        verify(hashService, never()).hash(anyString());
+        verify(userRepository, never()).save(any(User.class));
     }
 
     @Test
@@ -364,20 +492,286 @@ public class AuthServiceTest {
 
         User user = User.builder().build();
 
+        Authentication authentication = new UsernamePasswordAuthenticationToken(user, null);
+
         when(authenticationManager.authenticate(
                 any(UsernamePasswordAuthenticationToken.class)
         )).thenReturn(authentication);
 
-        when(authentication.getPrincipal()).thenReturn(user);
-        when(jwtService.generate(user)).thenReturn("token");
+        Duration jwtExpiration = Duration.ofMinutes(5);
+        Duration jwtRefreshTokenExpiration = Duration.ofDays(1);
+
+        String refreshToken = "refresh-token";
+
+        when(jwtProperties.expiration()).thenReturn(jwtExpiration);
+        when(jwtProperties.refreshTokenExpiration()).thenReturn(jwtRefreshTokenExpiration);
+        when(jwtService.generate(user, "access-token", jwtExpiration)).thenReturn("token");
+        when(jwtService.generate(user, "refresh-token", jwtRefreshTokenExpiration)).thenReturn(refreshToken);
+        when(hashService.hash(refreshToken)).thenReturn("hashed-refresh-token");
 
         AuthenticationResponse response = authService.login(request);
 
         assertNotNull(response);
-        assertEquals("token", response.token());
+        assertEquals("token", response.accessToken());
+        assertEquals("refresh-token", response.refreshToken());
 
         verify(authenticationManager).authenticate(any(UsernamePasswordAuthenticationToken.class));
-        verify(authentication).getPrincipal();
-        verify(jwtService).generate(user);
+        verify(jwtProperties).expiration();
+        verify(jwtProperties).refreshTokenExpiration();
+        verify(jwtService, times(2)).generate(any(User.class), anyString(), any(Duration.class));
+        verify(hashService).hash(refreshToken);
+    }
+
+
+    /**
+     * Refresh Token Test
+     */
+    @Test
+    void shouldThrowResponseStatusExceptionWhenTokenTypeIsInvalid() {
+        String refreshToken = "refresh-token";
+
+        when(jwtService.getType(refreshToken)).thenReturn("access-token");
+
+        ResponseStatusException exception = assertThrows(ResponseStatusException.class, () -> authService.refresh(refreshToken));
+
+        assertEquals(HttpStatus.FORBIDDEN, exception.getStatusCode());
+        assertEquals("Token type is invalid", exception.getReason());
+
+        verify(jwtService).getType(refreshToken);
+
+        verifyNoMoreInteractions(
+                jwtService
+        );
+
+        verifyNoInteractions(
+                userRepository,
+                hashService,
+                jwtProperties
+        );
+    }
+
+    @Test
+    void shouldThrowResponseStatusExceptionWhenRefreshTokenNotFound() {
+        String refreshToken = "refresh-token";
+
+        String userId = "user-x";
+
+        when(jwtService.getType(refreshToken)).thenReturn("refresh-token");
+        when(jwtService.getSubject(refreshToken)).thenReturn(userId);
+        when(userRepository.findById(userId)).thenReturn(Optional.empty());
+
+        ResponseStatusException exception = assertThrows(ResponseStatusException.class, () -> authService.refresh(refreshToken));
+
+        assertEquals(HttpStatus.NOT_FOUND, exception.getStatusCode());
+        assertEquals("Refresh token not found", exception.getReason());
+
+        verify(jwtService).getType(refreshToken);
+        verify(jwtService).getSubject(refreshToken);
+        verify(userRepository).findById(userId);
+
+        verifyNoInteractions(
+                hashService,
+                jwtProperties
+        );
+
+        verifyNoMoreInteractions(
+                jwtService,
+                userRepository
+        );
+    }
+
+    @Test
+    void shouldThrowResponseStatusExceptionWhenRefreshTokenIsInvalid() {
+        String refreshToken = "refresh-token";
+
+        String userId = "user-x";
+
+        User user = User.builder()
+                .refreshToken("saved-refresh-token")
+                .build();
+
+        String hashedRefreshToken = "hashed-refresh-token";
+
+        when(jwtService.getType(refreshToken)).thenReturn("refresh-token");
+        when(jwtService.getSubject(refreshToken)).thenReturn(userId);
+        when(userRepository.findById(userId)).thenReturn(Optional.of(user));
+        when(hashService.hash(refreshToken)).thenReturn(hashedRefreshToken);
+
+        ResponseStatusException exception = assertThrows(ResponseStatusException.class, () -> authService.refresh(refreshToken));
+
+        assertEquals(HttpStatus.FORBIDDEN, exception.getStatusCode());
+        assertEquals("Refresh token is invalid", exception.getReason());
+
+        verify(jwtService).getType(refreshToken);
+        verify(jwtService).getSubject(refreshToken);
+        verify(userRepository).findById(userId);
+        verify(hashService).hash(refreshToken);
+
+        verifyNoInteractions(
+                jwtProperties
+        );
+
+        verifyNoMoreInteractions(
+                jwtService,
+                userRepository
+        );
+    }
+
+    @Test
+    void shouldReturnAuthenticationResponseWhenRefreshIsSuccess() {
+        String refreshToken = "refresh-token";
+
+        String userId = "user-x";
+
+        User user = User.builder()
+                .refreshToken("hashed-refresh-token")
+                .build();
+
+        String hashedRefreshToken = "hashed-refresh-token";
+
+        Duration jwtExpiration = Duration.ofMinutes(5);
+        Duration jwtRefreshTokenExpiration = Duration.ofDays(1);
+
+        when(jwtService.getType(refreshToken)).thenReturn("refresh-token");
+        when(jwtService.getSubject(refreshToken)).thenReturn(userId);
+        when(userRepository.findById(userId)).thenReturn(Optional.of(user));
+        when(hashService.hash(refreshToken)).thenReturn(hashedRefreshToken);
+        when(jwtProperties.expiration()).thenReturn(jwtExpiration);
+        when(jwtProperties.refreshTokenExpiration()).thenReturn(jwtRefreshTokenExpiration);
+        when(jwtService.generate(user, "access-token", jwtExpiration)).thenReturn("new-access-token");
+        when(jwtService.generate(user, "refresh-token", jwtRefreshTokenExpiration)).thenReturn("new-refresh-token");
+        when(hashService.hash("new-refresh-token")).thenReturn("hashed-new-refresh-token");
+
+        AuthenticationResponse response = authService.refresh(refreshToken);
+
+        assertNotNull(response);
+        assertEquals("new-access-token", response.accessToken());
+        assertEquals("new-refresh-token", response.refreshToken());
+        assertEquals(user.getEmail(), response.user().email());
+        assertEquals(user.getUsername(), response.user().username());
+        assertNull(response.user().name());
+
+        assertNotNull(user.getRefreshToken());
+        assertNotNull(user.getRefreshTokenExpiredAt());
+
+        verify(jwtService).getType(refreshToken);
+        verify(jwtService).getSubject(refreshToken);
+        verify(userRepository).findById(userId);
+        verify(hashService).hash(refreshToken);
+        verify(jwtProperties).expiration();
+        verify(jwtProperties).refreshTokenExpiration();
+        verify(jwtService, times(2)).generate(any(User.class), anyString(), any(Duration.class));
+        verify(userRepository).save(any(User.class));
+    }
+
+    /**
+     * Logout Test
+     */
+    @Test
+    void shouldThrowResponseStatusExceptionWhenLogoutTokenTypeIsInvalid() {
+        String refreshToken = "refresh-token";
+
+        when(jwtService.getType(refreshToken)).thenReturn("access-token");
+
+        ResponseStatusException exception = assertThrows(ResponseStatusException.class, () -> authService.logout(refreshToken));
+
+        assertEquals(HttpStatus.FORBIDDEN, exception.getStatusCode());
+        assertEquals("Token type is invalid", exception.getReason());
+
+        verify(jwtService).getType(refreshToken);
+
+        verifyNoMoreInteractions(
+                jwtService
+        );
+
+        verifyNoInteractions(
+                userRepository,
+                hashService
+        );
+    }
+
+    @Test
+    void shouldThrowResponseStatusExceptionWhenLogoutRefreshTokenNotFound() {
+        String refreshToken = "refresh-token";
+
+        String userId = "user-x";
+
+        when(jwtService.getType(refreshToken)).thenReturn("refresh-token");
+        when(jwtService.getSubject(refreshToken)).thenReturn(userId);
+        when(userRepository.findById(userId)).thenReturn(Optional.empty());
+
+        ResponseStatusException exception = assertThrows(ResponseStatusException.class, () -> authService.logout(refreshToken));
+
+        assertEquals(HttpStatus.NOT_FOUND, exception.getStatusCode());
+        assertEquals("Refresh token not found", exception.getReason());
+
+        verify(jwtService).getType(refreshToken);
+        verify(jwtService).getSubject(refreshToken);
+        verify(userRepository).findById(userId);
+
+        verifyNoMoreInteractions(
+                userRepository
+        );
+
+        verifyNoInteractions(
+                hashService
+        );
+    }
+
+    @Test
+    void shouldThrowResponseStatusExceptionWhenLogoutRefreshTokenIsInvalid() {
+        String refreshToken = "refresh-token";
+
+        String userId = "user-x";
+
+        User user = User.builder()
+                .refreshToken("saved-refresh-token")
+                .build();
+
+        when(jwtService.getType(refreshToken)).thenReturn("refresh-token");
+        when(jwtService.getSubject(refreshToken)).thenReturn(userId);
+        when(userRepository.findById(userId)).thenReturn(Optional.of(user));
+        when(hashService.hash(refreshToken)).thenReturn("hashed-refresh-token");
+
+        ResponseStatusException exception = assertThrows(ResponseStatusException.class, () -> authService.logout(refreshToken));
+
+        assertEquals(HttpStatus.FORBIDDEN, exception.getStatusCode());
+        assertEquals("Refresh token is invalid", exception.getReason());
+
+        verify(jwtService).getType(refreshToken);
+        verify(jwtService).getSubject(refreshToken);
+        verify(userRepository).findById(userId);
+        verify(hashService).hash(refreshToken);
+
+        verifyNoMoreInteractions(
+                userRepository
+        );
+    }
+
+    @Test
+    void shouldReturnVoidWhenLogoutIsSuccess() {
+        String refreshToken = "refresh-token";
+
+        String userId = "user-x";
+
+        User user = User.builder()
+                .refreshToken("hashed-refresh-token")
+                .build();
+
+        when(jwtService.getType(refreshToken)).thenReturn("refresh-token");
+        when(jwtService.getSubject(refreshToken)).thenReturn(userId);
+        when(userRepository.findById(userId)).thenReturn(Optional.of(user));
+        when(hashService.hash(refreshToken)).thenReturn("hashed-refresh-token");
+
+        authService.logout(refreshToken);
+
+        assertNull(user.getRefreshToken());
+        assertNull(user.getRefreshTokenExpiredAt());
+
+        verify(jwtService).getType(refreshToken);
+        verify(jwtService).getSubject(refreshToken);
+        verify(userRepository).findById(userId);
+        verify(hashService).hash(refreshToken);
+        verify(userRepository).save(user);
     }
 }

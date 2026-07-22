@@ -1,18 +1,18 @@
 package com.voxa.api.controller;
 
 import com.voxa.api.model.request.LoginUserRequest;
+import com.voxa.api.model.request.RefreshTokenUserRequest;
 import com.voxa.api.model.request.RegisterUserRequest;
+import com.voxa.api.model.request.VerificationAccountUserRequest;
 import com.voxa.api.model.response.AuthenticationResponse;
 import com.voxa.api.model.response.WebResponse;
 import com.voxa.api.service.AuthService;
 import jakarta.mail.MessagingException;
 import jakarta.validation.Valid;
-import jakarta.validation.constraints.NotBlank;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
-import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
@@ -22,7 +22,6 @@ import org.springframework.web.bind.annotation.*;
         produces = MediaType.APPLICATION_JSON_VALUE
 
 )
-@Validated
 public class AuthController {
     private final AuthService authService;
 
@@ -44,10 +43,11 @@ public class AuthController {
 
     @PostMapping(
             value = "/verify-account",
+            consumes = MediaType.APPLICATION_JSON_VALUE,
             produces = MediaType.APPLICATION_JSON_VALUE
     )
-    public ResponseEntity<WebResponse<AuthenticationResponse>> verifyAccount(@NotBlank @RequestParam("token") String token) {
-        AuthenticationResponse authenticationResponse = authService.verifyAccount(token);
+    public ResponseEntity<WebResponse<AuthenticationResponse>> verifyAccount(@Valid @RequestBody VerificationAccountUserRequest request) {
+        AuthenticationResponse authenticationResponse = authService.verifyAccount(request.verificationToken());
 
         WebResponse<AuthenticationResponse> webResponse = WebResponse.<AuthenticationResponse>builder()
                 .success(true)
@@ -57,6 +57,23 @@ public class AuthController {
 
         return ResponseEntity.status(HttpStatus.OK).body(webResponse);
     }
+
+    @PostMapping(
+            value = "/resend-verification",
+            produces = MediaType.APPLICATION_JSON_VALUE
+    )
+    public ResponseEntity<WebResponse<?>> resendAccountVerification(String identifier) throws MessagingException {
+        authService.resendAccountVerification(identifier);
+
+        WebResponse<?> webResponse = WebResponse.builder()
+                .success(true)
+                .message("Verification has been sent. Please check your email.")
+                .build();
+
+        return ResponseEntity.status(HttpStatus.OK).body(webResponse);
+    }
+
+    // TODO: Resend Verification Feature
 
     @PostMapping(
             value = "/login",
@@ -70,6 +87,39 @@ public class AuthController {
                 .success(true)
                 .message("User login successfully")
                 .data(authenticationResponse)
+                .build();
+
+        return ResponseEntity.status(HttpStatus.OK).body(webResponse);
+    }
+
+    @PostMapping(
+            value = "/refresh",
+            consumes = MediaType.APPLICATION_JSON_VALUE,
+            produces = MediaType.APPLICATION_JSON_VALUE
+    )
+    public ResponseEntity<WebResponse<AuthenticationResponse>> refresh(@Valid @RequestBody RefreshTokenUserRequest request) {
+        AuthenticationResponse authenticationResponse = authService.refresh(request.refreshToken());
+
+        WebResponse<AuthenticationResponse> webResponse = WebResponse.<AuthenticationResponse>builder()
+                .success(true)
+                .message("Refresh token successfully")
+                .data(authenticationResponse)
+                .build();
+
+        return ResponseEntity.status(HttpStatus.OK).body(webResponse);
+    }
+
+    @PostMapping(
+            value = "/logout",
+            consumes = MediaType.APPLICATION_JSON_VALUE,
+            produces = MediaType.APPLICATION_JSON_VALUE
+    )
+    public ResponseEntity<WebResponse<?>> logout(@Valid @RequestBody RefreshTokenUserRequest request) {
+        authService.logout(request.refreshToken());
+
+        WebResponse<AuthenticationResponse> webResponse = WebResponse.<AuthenticationResponse>builder()
+                .success(true)
+                .message("Logout successfully")
                 .build();
 
         return ResponseEntity.status(HttpStatus.OK).body(webResponse);

@@ -1,6 +1,7 @@
 package com.voxa.api.exception;
 
 import com.voxa.api.model.response.ErrorResponse;
+import io.jsonwebtoken.JwtException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.ConstraintViolationException;
 import org.springframework.http.HttpStatus;
@@ -210,6 +211,22 @@ public class GlobalExceptionHandler {
                 .timestamp(Instant.now())
                 .success(false)
                 .message("Invalid credentials")
+                .path(request.getRequestURI())
+                .build();
+
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(errorResponse);
+    }
+
+    @ExceptionHandler(
+            value = JwtException.class,
+            produces = MediaType.APPLICATION_JSON_VALUE
+    )
+    public ResponseEntity<ErrorResponse> jwtException(HttpServletRequest request,
+                                                      JwtException exception) {
+        ErrorResponse errorResponse = ErrorResponse.builder()
+                .timestamp(Instant.now())
+                .success(false)
+                .message(exception.getMessage())
                 .path(request.getRequestURI())
                 .build();
 

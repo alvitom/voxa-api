@@ -1,48 +1,69 @@
 package com.voxa.api.service;
 
+import com.voxa.api.config.JwtProperties;
+import com.voxa.api.model.entity.User;
+import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
 
 import java.time.Duration;
 import java.time.Instant;
-import java.util.Base64;
-import java.util.Date;
-import java.util.HashMap;
-import java.util.Map;
+import java.util.*;
 
 import javax.crypto.SecretKey;
 
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.security.core.userdetails.UserDetails;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 @Service
+@RequiredArgsConstructor
 public class JwtService {
-    @Value("${spring.application.security.jwt.secret-key}")
-    private String secretKey;
+    private final JwtProperties jwtProperties;
 
-    @Value("${spring.application.security.jwt.expiration}")
-    private Duration expiration;
-
-    @Value("${spring.application.security.jwt.refresh-token-expiration}")
-    private Duration refreshTokenExpiration;
-
-    public String generate(Map<String, Object> claims, UserDetails userDetails) {
+    private String generate(Map<String, Object> claims, User user, Duration expiration) {
         return Jwts.builder()
+                .id(UUID.randomUUID().toString())
+                .issuer(jwtProperties.issuer())
+                .subject(user.getId())
                 .claims(claims)
-                .subject(userDetails.getUsername())
                 .issuedAt(Date.from(Instant.now()))
                 .expiration(Date.from(Instant.now().plus(expiration)))
                 .signWith(getSignKey())
                 .compact();
     }
 
-    public String generate(UserDetails userDetails) {
-        return generate(new HashMap<>(), userDetails);
+    public String generate(User user, Duration expiration) {
+        return generate(new HashMap<>(), user, expiration);
+    }
+
+    public String generate(User user, String type, Duration expiration) {
+        Map<String, Object> claims = new HashMap<>();
+
+        claims.put("type", type);
+
+        return generate(claims, user, expiration);
+    }
+
+    public String getSubject(String token) {
+        Claims claims = extractClaims(token);
+        return claims.getSubject();
+    }
+
+    public String getType(String token) {
+        Claims claims = extractClaims(token);
+        return claims.get("type", String.class);
+    }
+
+    private Claims extractClaims(String token) {
+        return Jwts.parser()
+                .verifyWith(getSignKey())
+                .build()
+                .parseSignedClaims(token)
+                .getPayload();
     }
 
     private SecretKey getSignKey() {
-        byte[] decodedKey = Base64.getDecoder().decode(secretKey);
+        byte[] decodedKey = Base64.getDecoder().decode(jwtProperties.secretKey());
 
         return Keys.hmacShaKeyFor(decodedKey);
     }
