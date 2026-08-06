@@ -9,3 +9,19 @@ spring:
       jwt:
         expiration: 10m
         refresh-token-expiration: 15d
+
+  jpa:
+    show-sql: false
+    properties:
+      hibernate:
+        format_sql: true
+        highlight_sql: true
+
+logging:
+  level:
+    org:
+      hibernate:
+        SQL: DEBUG
+        orm:
+          jdbc:
+            bind: TRACE
