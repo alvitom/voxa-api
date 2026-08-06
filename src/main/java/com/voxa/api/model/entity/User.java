@@ -71,8 +71,13 @@ public class User implements UserDetails {
     @LastModifiedDate
     private LocalDateTime updatedAt;
 
-//    @OneToOne(mappedBy = "userId")
-//    private UserProfile profile;
+    @OneToOne(
+            mappedBy = "user",
+            cascade = CascadeType.ALL,
+            orphanRemoval = true,
+            fetch = FetchType.LAZY
+    )
+    private UserProfile profile;
 
     @Override
     public Collection<? extends GrantedAuthority> getAuthorities() {

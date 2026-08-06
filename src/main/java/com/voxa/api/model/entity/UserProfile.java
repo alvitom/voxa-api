@@ -4,35 +4,43 @@ import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
+import lombok.NoArgsConstructor;
 
 import java.time.LocalDate;
 
+@Entity(name = "Profile")
+@Table(name = "profiles")
 @Data
 @AllArgsConstructor
+@NoArgsConstructor
 @Builder
-//@Entity
-//@Table(name = "user_profiles")
 public class UserProfile {
     @Id
-    @OneToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "user_id", referencedColumnName = "id")
-    private final String userId;
+    private String id;
 
-    private final String name;
+    private String name;
 
-    private final LocalDate birthday;
+    private LocalDate birthday;
 
-    private final String bio;
+    @Enumerated(EnumType.STRING)
+    private Gender gender;
 
-    @Column(name = "profile_picture_url")
-    private final String profilePictureUrl;
+    private String bio;
+
+    @Column(name = "pp_url")
+    private String ppUrl;
 
     @Column(name = "post_count")
-    private final Integer postCount;
+    private Integer postCount;
 
     @Column(name = "follower_count")
-    private final Integer followerCount;
+    private Integer followerCount;
 
     @Column(name = "following_count")
-    private final Integer followingCount;
+    private Integer followingCount;
+
+    @MapsId
+    @OneToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "id")
+    private User user;
 }

@@ -1,6 +1,7 @@
 package com.voxa.api.security;
 
 import com.voxa.api.model.entity.User;
+import com.voxa.api.model.projection.AuthenticationProjection;
 import com.voxa.api.model.response.ErrorResponse;
 import com.voxa.api.repository.UserRepository;
 import com.voxa.api.service.JwtService;
@@ -50,7 +51,11 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         try {
             String userId = jwtService.getSubject(token);
 
-            User user = userRepository.findById(userId).orElseThrow(() -> new UsernameNotFoundException("User not found"));
+            AuthenticationProjection authenticationProjection = userRepository.findForAuthentication(userId).orElseThrow(() -> new UsernameNotFoundException("User not found"));
+
+            User user = User.builder()
+                    .id(authenticationProjection.getId())
+                    .build();
 
             Authentication authentication = new UsernamePasswordAuthenticationToken(
                     user,
