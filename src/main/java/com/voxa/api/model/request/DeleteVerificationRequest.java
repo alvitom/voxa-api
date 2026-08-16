@@ -2,8 +2,8 @@ package com.voxa.api.model.request;
 
 import jakarta.validation.constraints.NotBlank;
 
-public record DeleteUserRequest(
+public record DeleteVerificationRequest(
         @NotBlank
-        String verificationCode
+        String password
 ) {
 }

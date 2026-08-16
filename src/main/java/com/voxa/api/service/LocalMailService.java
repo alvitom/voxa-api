@@ -87,4 +87,32 @@ public class LocalMailService implements MailService {
 
         mailSender.send(mimeMessage);
     }
+
+    @Override
+    public void sendDeleteVerification(String email, String username, String code) throws MessagingException {
+        MimeMessage mimeMessage = mailSender.createMimeMessage();
+
+        MimeMessageHelper mimeMessageHelper = new MimeMessageHelper(mimeMessage);
+
+        ClassPathResource resource = new ClassPathResource("templates/emails/delete-account-verification.mustache");
+
+        Map<String, String> data = Map.of(
+                "username", username,
+                "verificationCode", code
+        );
+
+        try (Reader reader = new InputStreamReader(resource.getInputStream())) {
+            String html = compiler.compile(reader).execute(data);
+
+            mimeMessageHelper.setFrom(mailProperties.sender());
+            mimeMessageHelper.setTo(email);
+            mimeMessageHelper.setSentDate(Date.from(Instant.now()));
+            mimeMessageHelper.setSubject("Delete Account Request");
+            mimeMessageHelper.setText(html, true);
+        } catch (IOException exception) {
+            throw new RuntimeException(String.format("Something goes wrong when send the email %s", exception.getMessage()));
+        }
+
+        mailSender.send(mimeMessage);
+    }
 }

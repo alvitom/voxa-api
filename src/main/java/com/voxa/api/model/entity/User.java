@@ -63,6 +63,12 @@ public class User implements UserDetails {
     @Column(name = "password_reset_token_expired_at")
     private LocalDateTime passwordResetTokenExpiredAt;
 
+    @Column(name = "delete_verification_code")
+    private String deleteVerificationCode;
+
+    @Column(name = "delete_verification_code_expired_at")
+    private LocalDateTime deleteVerificationCodeExpiredAt;
+
     @Column(name = "created_at")
     @CreatedDate
     private LocalDateTime createdAt;

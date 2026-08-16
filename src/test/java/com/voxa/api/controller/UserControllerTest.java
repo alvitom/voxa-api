@@ -1,6 +1,8 @@
 package com.voxa.api.controller;
 
 import com.voxa.api.model.entity.User;
+import com.voxa.api.model.request.DeleteUserRequest;
+import com.voxa.api.model.request.DeleteVerificationRequest;
 import com.voxa.api.model.request.UpdateUserRequest;
 import com.voxa.api.model.response.UserResponse;
 import com.voxa.api.model.response.WebResponse;
@@ -22,10 +24,8 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
-import static org.springframework.test.web.servlet.MockMvcBuilder.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
-import static org.springframework.test.web.servlet.result.MockMvcResultHandlers.*;
 
 @WebMvcTest(UserController.class)
 @AutoConfigureMockMvc(addFilters = false)
@@ -123,5 +123,77 @@ public class UserControllerTest {
         });
 
         verify(userService).update(user.getId(), request);
+    }
+
+    @Test
+    void shouldReturnWebResponseWhenSendDeleteVerificationIsSuccess() throws Exception {
+        DeleteVerificationRequest request = new DeleteVerificationRequest(
+                "password"
+        );
+
+        User user = User.builder()
+                .id("id")
+                .build();
+
+        Authentication authentication = new UsernamePasswordAuthenticationToken(
+                user,
+                null,
+                List.of()
+        );
+
+        SecurityContextHolder.getContext().setAuthentication(authentication);
+
+        mockMvc.perform(
+                post(basePath + "/me/send-delete-verification")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request))
+        ).andExpect(status().isOk()).andExpect(result -> {
+            String responseBody = result.getResponse().getContentAsString();
+
+            WebResponse<UserResponse> webResponse = objectMapper.readValue(responseBody, new TypeReference<>() {
+            });
+
+            assertTrue(webResponse.success());
+            assertTrue(webResponse.message().contains("Delete verification request successfully"));
+            assertNull(webResponse.data());
+        });
+
+        verify(userService).sendDeleteVerification(user.getId(), request.password());
+    }
+
+    @Test
+    void shouldReturnWebResponseWhenDeleteIsSuccess() throws Exception {
+        DeleteUserRequest request = new DeleteUserRequest(
+                "delete-verification"
+        );
+
+        User user = User.builder()
+                .id("id")
+                .build();
+
+        Authentication authentication = new UsernamePasswordAuthenticationToken(
+                user,
+                null,
+                List.of()
+        );
+
+        SecurityContextHolder.getContext().setAuthentication(authentication);
+
+        mockMvc.perform(
+                delete(basePath + "/me")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request))
+        ).andExpect(status().isOk()).andExpect(result -> {
+            String responseBody = result.getResponse().getContentAsString();
+
+            WebResponse<UserResponse> webResponse = objectMapper.readValue(responseBody, new TypeReference<>() {
+            });
+
+            assertTrue(webResponse.success());
+            assertTrue(webResponse.message().contains("Delete user successfully"));
+            assertNull(webResponse.data());
+        });
+
+        verify(userService).delete(user.getId(), request.verificationCode());
     }
 }

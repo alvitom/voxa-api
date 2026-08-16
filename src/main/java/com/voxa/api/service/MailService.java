@@ -6,4 +6,6 @@ public interface MailService {
     void sendAccountVerification(String email, String username, String token) throws MessagingException;
 
     void sendResetPassword(String email, String username, String token) throws MessagingException;
+
+    void sendDeleteVerification(String email, String username, String code) throws MessagingException;
 }
